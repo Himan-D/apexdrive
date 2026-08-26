@@ -1,5 +1,7 @@
 #include "../include/apexdrive/core/types.hpp"
 #include "../include/apexdrive/control/foc_core.hpp"
+#include "../include/apexdrive/control/mtpa_optimizer.hpp"
+#include "../include/apexdrive/sim/isaac_mujoco_bridge.hpp"
 #include "../include/apexdrive/host/actuator.hpp"
 #include "../include/apexdrive/protocol/can_protocol_v2.hpp"
 
@@ -155,6 +157,58 @@ void test_scenario_motor_parameter_consistency() {
     std::cout << "\033[1;32mPASSED (Derived Kt: " << derived_kt << " Nm/A)\033[0m\n";
 }
 
+void test_scenario_mtpa_and_field_weakening() {
+    std::cout << "[SCENARIO 7/8] Testing Salient MTPA & Closed-Loop Field Weakening... ";
+
+    MotorParameters params;
+    params.inductance_d_h = 0.00010f; // Salient IPMSM: Lq > Ld
+    params.inductance_q_h = 0.00015f;
+    MtpaOptimizer mtpa(params);
+
+    // 1. Demand 0.5 Nm torque under base speed
+    auto opt1 = mtpa.ComputeOptimalCurrents(0.5f, 48.0f, 100.0f, 0.001f);
+    assert(opt1.target_id_a < 0.0f); // Reluctance d-axis injection for salient machine!
+    assert(opt1.target_iq_a > 0.0f);
+
+    // 2. High-speed overspeed field weakening (5000 rad/s) for 50 ms
+    MtpaOptimizer::OptimalCurrentVector opt2{};
+    for (int i = 0; i < 50; ++i) {
+        opt2 = mtpa.ComputeOptimalCurrents(0.5f, 48.0f, 5000.0f, 0.001f);
+    }
+    assert(opt2.target_id_a < opt1.target_id_a); // Deeper negative Id injected!
+
+    std::cout << "\033[1;32mPASSED (MTPA Id: " << opt1.target_id_a << " A, FW Id: " << opt2.target_id_a << " A)\033[0m\n";
+}
+
+void test_scenario_isaac_mujoco_bridge() {
+    std::cout << "[SCENARIO 8/8] Testing NVIDIA Isaac Sim & MuJoCo Joint Actuator Bridge... ";
+
+    sim::IsaacMujocoJointBridge joint(0x10);
+    joint.SetCommand(ImpedanceCommand{
+        .target_pos_rad = 1.57f,
+        .target_vel_rad_s = 0.0f,
+        .stiffness_kp = 50.0f,
+        .damping_kd = 2.5f,
+        .feedforward_torque_nm = 0.5f
+    });
+
+    // Step physics at 1 kHz for 100 ms
+    float current_pos = 0.0f;
+    float current_vel = 0.0f;
+    for (int ms = 0; ms < 100; ++ms) {
+        float torque = joint.StepJointDynamics(current_pos, current_vel, 0.001f);
+        float accel = torque / 0.00045f;
+        current_vel += accel * 0.001f;
+        current_pos += current_vel * 0.001f;
+    }
+
+    auto state = joint.GetJointState();
+    assert(std::isfinite(state.applied_torque_nm));
+    assert(state.position_rad > 0.5f); // Converging towards target 1.57 rad!
+
+    std::cout << "\033[1;32mPASSED (Isaac Sim Applied Torque: " << state.applied_torque_nm << " Nm)\033[0m\n";
+}
+
 int main() {
     std::cout << "\n======================================================================\n";
     std::cout << "  RUNNING APEXDRIVE CLOSED-LOOP HARDWARE-READINESS TEST SCENARIOS     \n";
@@ -166,9 +220,11 @@ int main() {
     test_scenario_can_watchdog_timeout();
     test_scenario_can_v2_crc_validation();
     test_scenario_motor_parameter_consistency();
+    test_scenario_mtpa_and_field_weakening();
+    test_scenario_isaac_mujoco_bridge();
 
     std::cout << "======================================================================\n";
-    std::cout << "  \033[1;32mALL 6 HARDWARE-READINESS SCENARIOS PASSED (100% SUCCESS)\033[0m            \n";
+    std::cout << "  \033[1;32mALL 8 HARDWARE-READINESS SCENARIOS PASSED (100% SUCCESS)\033[0m            \n";
     std::cout << "======================================================================\n\n";
     return 0;
 }
