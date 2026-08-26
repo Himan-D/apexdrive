@@ -77,4 +77,13 @@ struct ImpedanceCommand {
     }
 };
 
+struct CalibrationResult {
+    float measured_resistance_ohm{0.075f};
+    float measured_inductance_h{0.00012f};
+    float measured_kt_nm_a{0.0714f};
+    float encoder_offset_rad{0.1425f};
+    float optimal_current_kp{0.18f};
+    float optimal_current_ki{112.5f};
+};
+
 } // namespace apexdrive

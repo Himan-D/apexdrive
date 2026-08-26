@@ -69,6 +69,15 @@ public:
         };
     }
 
+    // Inverse Clarke: Stationary Alpha-Beta Frame -> 3-Phase balanced components
+    [[nodiscard]] static constexpr inline InverterDutyCycles InverseClarke(AlphaBeta ab) noexcept {
+        return InverterDutyCycles{
+            .u = ab.alpha,
+            .v = -0.5f * ab.alpha + SQRT3_BY_TWO * ab.beta,
+            .w = -0.5f * ab.alpha - SQRT3_BY_TWO * ab.beta
+        };
+    }
+
     /**
      * Cross-Coupling Voltage Decoupling Feedforward:
      *   V_d_ff = -omega_e * L_q * I_q

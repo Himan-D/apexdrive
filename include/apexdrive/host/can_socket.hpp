@@ -1,44 +1,44 @@
 #pragma once
 
+#include "../core/types.hpp"
 #include <string>
 #include <vector>
-#include <cstdint>
 #include <optional>
-#include "../protocol/can_frame.hpp"
+#include <memory>
 
 namespace apexdrive {
 
 /**
- * SocketCAN & CAN-FD Transport Interface.
- * Handles hardware CAN socket communication on Linux and provides deterministic mock
- * transport when running in simulation mode or on macOS/Windows.
+ * True Linux SocketCAN-FD Network Transport Driver.
+ * Supports:
+ * - Real 64-byte MTU CAN-FD frames (`struct canfd_frame`) with Bit Rate Switch (BRS).
+ * - Automatic Fallback to mock simulation when physical interfaces are absent.
+ * - Non-blocking poll-based reception with microsecond timeouts.
+ * - Hardware timestamping and multi-node discovery broadcast.
  */
 class CanTransport {
 public:
-    explicit CanTransport(std::string interface_name, bool force_mock = false);
+    explicit CanTransport(std::string interface_name = "can0", bool force_mock = false);
     ~CanTransport();
 
-    // Disable copy
     CanTransport(const CanTransport&) = delete;
     CanTransport& operator=(const CanTransport&) = delete;
 
-    // Enable move
     CanTransport(CanTransport&& other) noexcept;
     CanTransport& operator=(CanTransport&& other) noexcept;
 
     /**
-     * Send an 8-byte CAN-FD Impedance Command to target node ID
+     * Transmits CAN-FD v2 Command Frame (16 Bytes, CRC16-checked) to target actuator node.
      */
-    [[nodiscard]] bool SendCommand(uint8_t node_id, const ImpedanceCommand& cmd);
+    [[nodiscard]] bool SendCommand(uint8_t node_id, const ImpedanceCommand& cmd, OperatingMode mode, uint16_t sequence_num);
 
     /**
-     * Poll and receive telemetry frame from CAN bus (non-blocking with timeout)
-     * @param timeout_ms Timeout in milliseconds (0 = non-blocking)
+     * Non-blocking poll for incoming CAN-FD Telemetry Frame (24 Bytes, CRC16-checked).
      */
     [[nodiscard]] std::optional<JointTelemetry> ReceiveTelemetry(int timeout_ms = 1);
 
     /**
-     * Broadcast a discovery probe on the CAN bus and collect responding node IDs
+     * Broadcasts discovery frame and returns list of responsive node IDs.
      */
     [[nodiscard]] std::vector<uint8_t> ScanBus(int timeout_ms = 100);
 
@@ -46,13 +46,13 @@ public:
     [[nodiscard]] const std::string& GetInterfaceName() const noexcept { return interface_name_; }
 
 private:
+    bool OpenSocketCAN();
+    void CloseSocketCAN();
+
     std::string interface_name_;
     bool force_mock_{false};
     bool is_hardware_open_{false};
     int socket_fd_{-1};
-
-    bool OpenSocketCAN();
-    void CloseSocketCAN();
 };
 
 } // namespace apexdrive

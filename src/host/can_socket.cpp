@@ -1,4 +1,5 @@
 #include "../../include/apexdrive/host/can_socket.hpp"
+#include "../../include/apexdrive/protocol/can_protocol_v2.hpp"
 #include <iostream>
 #include <cstring>
 #include <chrono>
@@ -58,7 +59,7 @@ bool CanTransport::OpenSocketCAN() {
         return false;
     }
 
-    // Enable CAN-FD Support
+    // Enable CAN-FD Support (Allows 64-byte payloads and bitrate switching)
     int enable_canfd = 1;
     if (setsockopt(socket_fd_, SOL_CAN_RAW, CAN_RAW_FD_FRAMES, &enable_canfd, sizeof(enable_canfd)) < 0) {
         std::cerr << "[ApexDrive] Warning: Interface does not support CAN-FD mode.\n";
@@ -108,24 +109,25 @@ void CanTransport::CloseSocketCAN() {
     is_hardware_open_ = false;
 }
 
-bool CanTransport::SendCommand(uint8_t node_id, const ImpedanceCommand& cmd) {
-    uint8_t payload[8];
-    CanProtocol::EncodeImpedanceCommand(cmd, payload);
+bool CanTransport::SendCommand(uint8_t node_id, const ImpedanceCommand& cmd, OperatingMode mode, uint16_t sequence_num) {
+    uint8_t payload[16];
+    CanProtocolV2::EncodeCommand(cmd, mode, sequence_num, payload);
 
 #ifdef __linux__
     if (is_hardware_open_ && socket_fd_ >= 0) {
-        struct can_frame frame;
+        struct canfd_frame frame{};
         frame.can_id = 0x200 | node_id;
-        frame.can_dlc = 8;
-        std::memcpy(frame.data, payload, 8);
+        frame.len = 16;
+        frame.flags = CANFD_BRS; // Bit Rate Switch enabled (5 Mbps data phase)
+        std::memcpy(frame.data, payload, 16);
 
-        ssize_t bytes_sent = write(socket_fd_, &frame, sizeof(frame));
-        return bytes_sent == sizeof(frame);
+        ssize_t bytes_sent = write(socket_fd_, &frame, sizeof(struct canfd_frame));
+        return bytes_sent == sizeof(struct canfd_frame);
     }
 #endif
 
     (void)node_id;
-    return true; // Accepted by mock simulator
+    return true; // Accepted in simulation backend
 }
 
 std::optional<JointTelemetry> CanTransport::ReceiveTelemetry(int timeout_ms) {
@@ -137,11 +139,14 @@ std::optional<JointTelemetry> CanTransport::ReceiveTelemetry(int timeout_ms) {
 
         int ret = poll(&pfd, 1, timeout_ms);
         if (ret > 0 && (pfd.revents & POLLIN)) {
-            struct can_frame frame;
-            ssize_t bytes_read = read(socket_fd_, &frame, sizeof(frame));
-            if (bytes_read == sizeof(frame) && frame.can_dlc >= 8) {
+            struct canfd_frame frame{};
+            ssize_t bytes_read = read(socket_fd_, &frame, sizeof(struct canfd_frame));
+            if (bytes_read == sizeof(struct canfd_frame) && frame.len >= 24) {
                 uint8_t node_id = static_cast<uint8_t>(frame.can_id & 0xFF);
-                return CanProtocol::DecodeTelemetry(frame.data, node_id);
+                JointTelemetry telem;
+                if (CanProtocolV2::DecodeTelemetry(frame.data, node_id, telem)) {
+                    return telem;
+                }
             }
         }
     }
@@ -157,11 +162,12 @@ std::vector<uint8_t> CanTransport::ScanBus(int timeout_ms) {
 #ifdef __linux__
     if (is_hardware_open_ && socket_fd_ >= 0) {
         // Send a ping probe frame to broadcast address 0x100
-        struct can_frame probe_frame;
+        struct canfd_frame probe_frame{};
         probe_frame.can_id = 0x100;
-        probe_frame.can_dlc = 1;
+        probe_frame.len = 1;
+        probe_frame.flags = CANFD_BRS;
         probe_frame.data[0] = 0xAA; // Discovery opcode
-        ssize_t sent = write(socket_fd_, &probe_frame, sizeof(probe_frame));
+        ssize_t sent = write(socket_fd_, &probe_frame, sizeof(struct canfd_frame));
         (void)sent;
 
         auto start = std::chrono::steady_clock::now();
