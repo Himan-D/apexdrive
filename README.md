@@ -1,112 +1,132 @@
-# ApexDrive ⚡
+# ApexDrive
 
-> **Robotics Actuator Control Engine, Inverter SDK & Simulation Suite**  
-> *FOC Mathematics • Linux SocketCAN Transport • ros2_control System Interface • Embedded STM32G4 Target*
+**Robotics Actuator Control Engine, Inverter SDK & Simulation Suite**  
+*Field-Oriented Control (FOC) • Linux SocketCAN Transport • ros2_control System Interface • STM32G4 Embedded Target*
 
 ---
 
-## 🎯 Architecture Overview
+## 1. Architecture Overview
 
-ApexDrive is structured into four distinct, decoupled layers to bridge the gap between high-level robotics orchestration and low-level inverter electronics:
+ApexDrive is organized into four decoupled architectural layers to bridge high-level robotics orchestration with bare-metal inverter electronics:
 
 ```
-┌─────────────────────────────────────────────────────────────────────────────┐
-│ 1. ROBOTICS ORCHESTRATION & HIGH-LEVEL APIS                                 │
-│    • ROS 2 ros2_control SystemInterface Plugin (C++)                        │
-│    • Python Client SDK (`import apexdrive`)                                 │
-│    • Developer Diagnostic CLI (`apexdrive scan / monitor / bench`)          │
-└──────────────────────────────────────┬──────────────────────────────────────┘
-                                       │ 1 kHz CAN-FD (8-Byte Bit-Packed Protocol)
-┌──────────────────────────────────────▼──────────────────────────────────────┐
-│ 2. HOST TRANSPORT & PROTOCOL LAYER                                          │
-│    • Linux SocketCAN Driver (`socket(PF_CAN, SOCK_RAW, CAN_RAW)`)           │
-│    • High-Resolution Fixed-Point Frame Serialization (Q16 Position/Torque)  │
-│    • Cross-Platform Deterministic Simulation Testbench (macOS / Windows)    │
-└──────────────────────────────────────┬──────────────────────────────────────┘
-                                       │ Real-Time Bus Communication
-┌──────────────────────────────────────▼──────────────────────────────────────┐
-│ 3. CORE FOC VECTOR MATHEMATICS & SAFETY SUPERVISOR                          │
-│    • Forward/Inverse Clarke & Park Transformations                          │
-│    • Space Vector Modulation (SVPWM) with 3rd-Harmonic Neutral Point Shift  │
-│    • 256-Point Linear-Interpolated Anti-Cogging Harmonic Map                │
-│    • Cross-Coupling Voltage Decoupling Feedforward                          │
-│    • Sliding Mode Observer (SMO) Sensorless Back-EMF & Flux Estimator      │
-│    • I²t Thermal Energy Accumulator & Software Safety Supervisor            │
-└──────────────────────────────────────┬──────────────────────────────────────┘
-                                       │ Hardware Registers / DMA
-┌──────────────────────────────────────▼──────────────────────────────────────┐
-│ 4. BARE-METAL EMBEDDED FIRMWARE (`firmware/stm32g4`)                        │
-│    • 25 kHz Injected ADC Conversion ISR (Phase Current Shunt Sampling)      │
-│    • TIM1 Advanced Timer Center-Aligned Complementary PWM + 120ns Dead-Time │
-│    • Hardware Break Input (BKIN): Analog Comparator Safe Torque Off (STO)   │
-│    • 14-Bit SPI Magnetic Absolute Encoder Driver (AS5047P / MA730)          │
-└─────────────────────────────────────────────────────────────────────────────┘
++-----------------------------------------------------------------------------+
+| 1. ROBOTICS ORCHESTRATION & HIGH-LEVEL APIS                                 |
+|    - ROS 2 ros2_control SystemInterface Plugin (C++)                        |
+|    - Python Client SDK (import apexdrive)                                   |
+|    - Developer Diagnostic CLI (apexdrive scan / monitor / bench)            |
++--------------------------------------┬--------------------------------------+
+                                       | 1 kHz CAN-FD (CAN-FD v2 Protocol)
++--------------------------------------v--------------------------------------+
+| 2. HOST TRANSPORT & PROTOCOL LAYER                                          |
+|    - Linux SocketCAN Driver (socket(PF_CAN, SOCK_RAW, CAN_RAW))             |
+|    - Symmetric Q15 Fixed-Point Frame Serialization & CRC16 Validation       |
+|    - Cross-Platform Deterministic Simulation Testbench (macOS / Linux)      |
++--------------------------------------┬--------------------------------------+
+                                       | Bus Communication
++--------------------------------------v--------------------------------------+
+| 3. CORE FOC VECTOR MATHEMATICS & SAFETY SUPERVISOR                          |
+|    - Forward/Inverse Clarke & Park Transformations                          |
+|    - Space Vector Modulation (SVPWM) with Min/Max Common-Mode Injection     |
+|    - Vector-Space Voltage Limiter with Anti-Windup Back-Calculation         |
+|    - Cross-Coupling Voltage Decoupling Feedforward                          |
+|    - 256-Point Linear-Interpolated Anti-Cogging Harmonic Map                |
+|    - Sliding Mode Observer (SMO) with Tracking Phase-Locked Loop (PLL)      |
+|    - Continuous Salient PMSM Differential Dynamics Engine                   |
++--------------------------------------┬--------------------------------------+
+                                       | Hardware Registers / DMA
++--------------------------------------v--------------------------------------+
+| 4. BARE-METAL EMBEDDED FIRMWARE (firmware/stm32g4)                          |
+|    - 25 kHz Injected ADC Conversion ISR (Phase Shunt Sampling)              |
+|    - TIM1 Advanced Timer Center-Aligned Complementary PWM (120ns Dead-Time) |
+|    - Hardware Safe Torque Off (STO) via TIM1 Break Input 1 (BKIN)           |
+|    - SPI 14-Bit Magnetic Absolute Angle Encoder Driver (AS5047P / MA730)    |
++-----------------------------------------------------------------------------+
 ```
 
 ---
 
-## 🚀 Key Capabilities
+## 2. Core Capabilities
 
-* **⚡ FOC Vector Engine:** Zero-allocation Clarke/Park transforms, anti-windup current PI regulators, and SVPWM for +15.4% bus utilization.
-* **🛡️ Multi-Tier Safety Guard:** Sub-microsecond hardware Safe Torque Off (STO) via TIM1 break inputs paired with real-time software eFuse checks (Overcurrent, Overvoltage, UVLO brownout, Overtemp, and $I^2t$ thermal budgeting).
-* **🤖 Native Compliant Impedance Control:** Virtual programmable spring-damper control law ($\tau = K_p(\theta_d - \theta) + K_d(\dot{\theta}_d - \dot{\theta}) + \tau_{ff}$) designed for humanoids and quadrupeds.
-* **🔧 Anti-Cogging Feedforward:** 256-point high-resolution linear-interpolated lookup table (LUT) to eliminate stator slotting torque ripple.
-* **📡 Linux SocketCAN Transport:** Native SocketCAN-FD socket layer with automatic non-blocking frame polling and multi-axis discovery.
-* **🦾 ROS 2 Integration:** Production `ros2_control` hardware plugin (`apexdrive_hardware::ApexDriveHardware`) ready for URDF integration.
-* **📼 Edge Flight Recorder:** 25 kHz circular in-memory buffer that freezes on hardware fault for forensic incident investigation.
+### Unified FOC Core (`apexdrive::FocEngine`)
+* Zero dynamic memory allocation in control execution paths.
+* Decoupled cross-coupling feedforward:
+  $$V_d^* = V_{d,\text{PI}} - \omega_e L_q I_q$$
+  $$V_q^* = V_{q,\text{PI}} + \omega_e (L_d I_d + \psi_f)$$
+* Vector-space voltage limiter ensuring $\sqrt{V_d^2 + V_q^2} \le V_{\max} = \frac{V_{\text{bus}}}{\sqrt{3}} \cdot 0.98$ with back-calculation anti-windup integration.
+* Shared single implementation across host simulation, hardware-in-the-loop (HIL) testing, and STM32 embedded firmware.
+
+### Multi-Tier Safety Architecture
+* **Hardware STO:** Direct analog comparator break input (`TIM1_BDTR.BKE`) tri-stating inverter gate drivers in $< 40\text{ ns}$ independently of software execution.
+* **Software Safety Supervisor:** Continuous verification of peak phase overcurrent, DC bus overvoltage, under-voltage lockout (UVLO), stator/inverter thermal limits, and $I^2t$ continuous energy accumulation.
+* **Command Watchdog:** Monotonic 25 ms heartbeat monitor requiring valid, CRC-verified frames to maintain torque generation.
+
+### Compliant Motion Control
+* Programmable virtual spring-damper impedance control law:
+  $$\tau = K_p(\theta_d - \theta) + K_d(\dot{\theta}_d - \dot{\theta}) + \tau_{ff}$$
+* Designed for multi-axis synchronization in legged and humanoid robotics.
 
 ---
 
-## 🛠️ Quickstart (Building from Source)
+## 3. Building from Source
 
+### Prerequisites
+* C++20 compliant compiler (GCC 11+, Clang 14+, or Apple Clang)
+* CMake 3.20+
+* Linux with `libsocketcan-dev` (optional, required for physical CAN-FD bus communication)
+
+### Build Commands
 ```bash
 # Clone the repository
 git clone https://github.com/Himan-D/apexdrive.git
 cd apexdrive
 
-# Build C++ Library, CLI, and Test Suite
+# Configure and compile
 mkdir build && cd build
 cmake -DCMAKE_BUILD_TYPE=Release ..
 make -j$(nproc)
 
-# Run the unit test suite
+# Run test suites
 ./test_suite
+./control_scenarios_test
 ```
 
 ---
 
-## 💻 CLI Commands
+## 4. CLI Reference
 
 ```bash
-# Scan the CAN bus for connected joint actuators (uses Linux SocketCAN or mock fallback)
+# Scan CAN bus for physical joint actuators (falls back to simulation mode if no CAN hardware is present)
 ./apexdrive scan --interface can0
 
-# Synthesize decoupled PI gains and anti-cogging map
+# Synthesize current loop PI gains and anti-cogging feedforward map
 ./apexdrive tune --id 0x14
 
-# Launch real-time terminal telemetry HUD and oscilloscope
+# Launch real-time terminal telemetry monitor
 ./apexdrive monitor --id 0x14
 
-# Dump forensic black-box incident log
+# Output forensic circular black-box buffer
 ./apexdrive dump-blackbox
 
-# Run host-side 1,000,000-cycle FOC math and supervisor latency benchmark
+# Execute host-side 1,000,000-cycle timing benchmark
 ./apexdrive bench
 ```
 
 ---
 
-## 🦾 ROS 2 Integration (`ros2_control`)
+## 5. ROS 2 Integration (`ros2_control`)
 
-In your robot's URDF description:
+The `apexdrive_hardware` package provides a standardized `hardware_interface::SystemInterface` plugin for ROS 2 Humble, Iron, and Jazzy.
 
+### URDF Configuration
 ```xml
 <ros2_control name="ApexDriveSystem" type="system">
   <hardware>
     <plugin>apexdrive_hardware/ApexDriveHardware</plugin>
     <param name="can_interface">can0</param>
   </hardware>
-  <joint name="knee_joint">
+  <joint name="joint_1">
+    <param name="node_id">16</param>
     <command_interface name="position"/>
     <command_interface name="effort"/>
     <state_interface name="position"/>
@@ -118,23 +138,32 @@ In your robot's URDF description:
 
 ---
 
-## 🐍 Python SDK (`import apexdrive`)
+## 6. Python Client SDK
 
+Install from PyPI:
+```bash
+pip install apexdrive
+```
+
+Usage Example:
 ```python
 import apexdrive
 
-# Connect to actuator node on CAN bus
-joint = apexdrive.Actuator("can0", node_id=0x14)
+# Initialize actuator connection
+joint = apexdrive.Actuator(interface="can0", node_id=0x14)
 joint.arm()
 
 # Stream 1 kHz compliant impedance commands
-joint.set_impedance(pos_rad=1.57, kp=45.0, kd=2.5, tau_ff=1.2)
+# pos_rad: target angle, kp: stiffness (Nm/rad), kd: damping (Nm*s/rad), tau_ff: feedforward (Nm)
+joint.set_impedance(pos_rad=1.57, vel_rad_s=0.0, kp=45.0, kd=2.5, tau_ff=1.2)
 
+# Read telemetry snapshot
 state = joint.get_state()
-print(f"Angle: {state.position_rad:.3f} rad | Torque: {state.torque_nm:.2f} Nm")
+print(f"Position: {state.position_rad:.4f} rad | Torque: {state.torque_nm:.2f} Nm | Bus: {state.v_bus_v:.1f} V")
 ```
 
 ---
 
-## 📄 License
-Apache 2.0.
+## 7. License
+
+Distributed under the Apache 2.0 License. See `LICENSE` for details.
