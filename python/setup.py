@@ -10,7 +10,7 @@ if os.path.exists(readme_path):
 
 setup(
     name="apexdrive",
-    version="1.0.0",
+    version="1.1.0",
     description="Universal High-Performance Robotics Actuator & Motor Control Engine",
     long_description=long_description,
     long_description_content_type="text/markdown",

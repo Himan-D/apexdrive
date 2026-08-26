@@ -35,7 +35,7 @@ jobs:
       - name: Checkout Code
         uses: actions/checkout@v4
 
-      - name: Setup Linux Compiler
+      - name: Setup Linux Dependencies
         if: runner.os == 'Linux'
         run: |
           sudo apt-get update
@@ -47,18 +47,18 @@ jobs:
           -DCMAKE_BUILD_TYPE=Release
           ${{ matrix.c_compiler != 'cl' && format('-DCMAKE_C_COMPILER={0} -DCMAKE_CXX_COMPILER={1}', matrix.c_compiler, matrix.cxx_compiler) || '' }}
 
-      - name: Build Library, CLI & Tests
+      - name: Build Library, CLI & All Test Suites
         run: cmake --build build --config Release --parallel
 
-      - name: Run Test Suite
+      - name: Run CTest Test Suites (Unit Tests & Hardware Scenarios)
         working-directory: build
         run: ctest --output-on-failure -C Release
 
-      - name: Run Deterministic Real-Time Benchmark
+      - name: Run Real-Time Timing Benchmark & CLI Validation
         working-directory: build
         run: |
           ${{ runner.os == 'Windows' && 'Release\\apexdrive.exe bench' || './apexdrive bench' }}
-          ${{ runner.os == 'Windows' && 'Release\\apexdrive.exe scan' || './apexdrive scan' }}
+          ${{ runner.os == 'Windows' && 'Release\\apexdrive.exe scan --mock' || './apexdrive scan --mock' }}
 
       - name: Verify CPack Packaging (.deb / .tar.gz)
         if: runner.os == 'Linux'
