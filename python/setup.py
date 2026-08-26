@@ -1,44 +1,41 @@
-import os
 from setuptools import setup, find_packages
+import os
 
-# Read README from root or fallback
-long_description = "Universal High-Performance Robotics Actuator & Motor Control Engine"
-readme_path = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "README.md"))
+readme_path = os.path.join(os.path.dirname(__file__), "..", "README.md")
+if not os.path.exists(readme_path):
+    readme_path = os.path.join(os.path.dirname(__file__), "README.md")
+
 if os.path.exists(readme_path):
-    with open(readme_path, "r", encoding="utf-8") as fh:
-        long_description = fh.read()
+    with open(readme_path, encoding="utf-8") as f:
+        long_description = f.read()
+else:
+    long_description = "Robotics Actuator Control Engine & Inverter SDK"
 
 setup(
     name="apexdrive",
-    version="1.1.0",
-    description="Universal High-Performance Robotics Actuator & Motor Control Engine",
+    version="1.2.0",
+    description="Robotics Actuator Control Engine & Inverter SDK (FOC / SocketCAN / ROS 2 / STM32G4)",
     long_description=long_description,
     long_description_content_type="text/markdown",
     author="Himan-D",
-    author_email="dev@apexdrive.io",
     url="https://github.com/Himan-D/apexdrive",
     project_urls={
-        "Bug Tracker": "https://github.com/Himan-D/apexdrive/issues",
-        "Source Code": "https://github.com/Himan-D/apexdrive",
         "Documentation": "https://github.com/Himan-D/apexdrive#readme",
+        "Source": "https://github.com/Himan-D/apexdrive",
+        "Tracker": "https://github.com/Himan-D/apexdrive/issues",
     },
     packages=find_packages(),
     classifiers=[
-        "Development Status :: 5 - Production/Stable",
-        "Intended Audience :: Developers",
+        "Development Status :: 4 - Beta",
         "Intended Audience :: Science/Research",
+        "Intended Audience :: Manufacturing",
         "Topic :: Scientific/Engineering",
-        "Topic :: System :: Hardware",
+        "Topic :: Software Development :: Embedded Systems",
         "License :: OSI Approved :: Apache Software License",
         "Programming Language :: Python :: 3",
-        "Programming Language :: Python :: 3.8",
-        "Programming Language :: Python :: 3.9",
-        "Programming Language :: Python :: 3.10",
-        "Programming Language :: Python :: 3.11",
-        "Programming Language :: Python :: 3.12",
-        "Programming Language :: Python :: 3.13",
         "Operating System :: POSIX :: Linux",
-        "Operating System :: MacOS :: MacOS X",
+        "Operating System :: MacOS",
+        "Operating System :: Microsoft :: Windows",
     ],
     python_requires=">=3.8",
     install_requires=[],
