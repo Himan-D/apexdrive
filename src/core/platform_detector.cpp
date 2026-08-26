@@ -132,4 +132,9 @@ std::string PlatformDetector::GenerateDiagnosticSummary(const PlatformProfile& p
     return oss.str();
 }
 
+void PlatformDetector::PrintReport() noexcept {
+    auto profile = DetectEnvironment();
+    std::cout << GenerateDiagnosticSummary(profile) << "\n";
+}
+
 } // namespace apexdrive

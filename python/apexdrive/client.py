@@ -112,14 +112,17 @@ class Actuator:
         if self._safety != "OK":
             return
         
-        out = step_joint_physics(self._pos, self._vel, pos_rad, vel_rad_s, kp, kd, tau_ff, 0.001)
-        self._iq = out["current_iq_a"]
-        torque_em = out["applied_torque_nm"]
+        max_torque = 1.785
+        substeps = 10
+        dt_sub = 0.001 / substeps
 
-        dt = 0.001
-        accel = (torque_em - (self._vel * self._b)) / self._j
-        self._vel += accel * dt
-        self._pos += self._vel * dt
+        for _ in range(substeps):
+            out = step_joint_physics(self._pos, self._vel, pos_rad, vel_rad_s, kp, kd, tau_ff, dt_sub)
+            torque_em = max(-max_torque, min(max_torque, out["applied_torque_nm"]))
+            self._iq = torque_em / self._kt
+            accel = (torque_em - (self._vel * self._b)) / self._j
+            self._vel += accel * dt_sub
+            self._pos += self._vel * dt_sub
 
     def set_torque(self, torque_nm: float) -> None:
         """Command direct electromagnetic torque in Nm."""

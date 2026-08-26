@@ -42,6 +42,8 @@ public:
     [[nodiscard]] static PlatformProfile DetectEnvironment() noexcept;
     
     [[nodiscard]] static std::string GenerateDiagnosticSummary(const PlatformProfile& profile);
+
+    static void PrintReport() noexcept;
 };
 
 } // namespace apexdrive

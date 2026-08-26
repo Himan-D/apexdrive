@@ -45,6 +45,12 @@ add_executable(control_scenarios_test
 )
 target_link_libraries(control_scenarios_test PRIVATE apexdrive_host)
 
+# 5. Multi-Joint CAN-FD Real-Time Streaming Example
+add_executable(example_can_streaming
+    examples/can_hardware_streaming.cpp
+)
+target_link_libraries(example_can_streaming PRIVATE apexdrive_host)
+
 # Enable CTest
 enable_testing()
 add_test(NAME ApexDriveUnitTests COMMAND test_suite)
