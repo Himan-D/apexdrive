@@ -22,6 +22,17 @@ class ActuatorState:
     fault_flags: int
     timestamp_us: int
 
+JointState = ActuatorState
+JointTelemetry = ActuatorState
+
+@dataclass
+class ImpedanceCommand:
+    pos_rad: float = 0.0
+    vel_rad_s: float = 0.0
+    kp: float = 0.0
+    kd: float = 0.0
+    tau_ff: float = 0.0
+
 class Actuator:
     """
     High-level interface to an ApexDrive robotics joint actuator.
@@ -37,7 +48,7 @@ class Actuator:
         self._iq = 0.0
         self._v_bus = 48.0
         self._temp = 35.0
-        self._kt = 0.084  # Nm/A
+        self._kt = 0.0714  # Derived Kt = 1.5 * p * psi_f
         self._j = 0.00045 # kg*m^2
         self._b = 0.0005  # Viscous damping
         self._start_time_us = int(time.time() * 1e6)
@@ -58,40 +69,39 @@ class Actuator:
         self._safety = "SAFE_TORQUE_OFF"
         self._iq = 0.0
 
-    def set_impedance(self, pos_rad: float, vel_rad_s: float = 0.0, 
-                      kp: float = 40.0, kd: float = 2.0, tau_ff: float = 0.0) -> None:
+    def set_impedance(self, pos_rad: float, vel_rad_s: float = 0.0, kp: float = 0.0, kd: float = 0.0, tau_ff: float = 0.0) -> None:
         """
-        Stream 1 kHz compliant impedance control command.
-        Tau = Kp * (pos_target - pos) + Kd * (vel_target - vel) + tau_ff
+        Send compliant impedance control command:
+          tau = kp * (pos_rad - current_pos) + kd * (vel_rad_s - current_vel) + tau_ff
         """
-        if not (math.isfinite(pos_rad) and math.isfinite(kp) and kp >= 0.0 and math.isfinite(kd) and kd >= 0.0):
-            self._safety = "FAULT_STOP"
+        if self._safety != "OK":
             return
+        
+        # Calculate impedance torque
+        tau = kp * (pos_rad - self._pos) + kd * (vel_rad_s - self._vel) + tau_ff
+        self._iq = tau / self._kt
 
-        if self._mode != "STANDBY" and self._safety == "OK":
-            # Compliant virtual spring-damper
-            torque_cmd = kp * (pos_rad - self._pos) + kd * (vel_rad_s - self._vel) + tau_ff
-            target_iq = max(min(torque_cmd / self._kt, 40.0), -40.0)
-            
-            # Step internal physics (1ms step)
-            dt = 0.001
-            self._iq += (target_iq - self._iq) * (dt / 0.001)
-            torque_em = self._iq * self._kt
-            accel = (torque_em - self._b * self._vel) / self._j
-            self._vel += accel * dt
-            self._pos += self._vel * dt
+        # Step simulated single-axis physical dynamics
+        dt = 0.001
+        torque_em = self._iq * self._kt
+        accel = (torque_em - (self._vel * self._b)) / self._j
+        self._vel += accel * dt
+        self._pos += self._vel * dt
+
+    def set_torque(self, torque_nm: float) -> None:
+        """Command direct electromagnetic torque in Nm."""
+        self.set_impedance(pos_rad=self._pos, kp=0.0, kd=0.0, tau_ff=torque_nm)
 
     def get_state(self) -> ActuatorState:
-        """Retrieve current telemetry snapshot."""
+        """Fetch latest state telemetry snapshot."""
         now_us = int(time.time() * 1e6) - self._start_time_us
-        torque_em = self._iq * self._kt
         return ActuatorState(
             node_id=self.node_id,
             mode=self._mode,
             safety_state=self._safety,
             position_rad=self._pos,
             velocity_rad_s=self._vel,
-            torque_nm=torque_em,
+            torque_nm=self._iq * self._kt,
             current_iq_a=self._iq,
             v_bus_v=self._v_bus,
             temperature_c=self._temp,
