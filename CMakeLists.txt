@@ -15,14 +15,15 @@ endif()
 # Include Directories
 include_directories(${CMAKE_CURRENT_SOURCE_DIR}/include)
 
-# 1. Host Actuator Library
+# 1. Host Actuator Library (with Real Linux SocketCAN transport)
 add_library(apexdrive_host STATIC
     src/host/actuator.cpp
+    src/host/can_socket.cpp
 )
 set_target_properties(apexdrive_host PROPERTIES
     VERSION ${PROJECT_VERSION}
     SOVERSION 1
-    PUBLIC_HEADER "include/apexdrive/host/actuator.hpp"
+    PUBLIC_HEADER "include/apexdrive/host/actuator.hpp;include/apexdrive/host/can_socket.hpp"
 )
 
 # 2. Developer CLI Binary
@@ -52,6 +53,7 @@ install(TARGETS apexdrive apexdrive_host
     RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR}
     LIBRARY DESTINATION ${CMAKE_INSTALL_LIBDIR}
     ARCHIVE DESTINATION ${CMAKE_INSTALL_LIBDIR}
+    PUBLIC_HEADER DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}/apexdrive/host
 )
 
 # Install Header Files

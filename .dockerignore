@@ -1,0 +1,6 @@
+build/
+.git/
+python/dist/
+python/build/
+*.egg-info/
+dist_deb/

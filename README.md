@@ -1,18 +1,59 @@
 # ApexDrive ⚡
 
-> **Universal High-Performance Robotics Actuator & Motor Control Engine**  
-> *Hard Real-Time 25 kHz FOC • Sub-Microsecond eFuse Protection • 1 kHz Compliant Impedance API • CAN-FD / EtherCAT*
+> **Robotics Actuator Control Engine, Inverter SDK & Simulation Suite**  
+> *FOC Mathematics • Linux SocketCAN Transport • ros2_control System Interface • Embedded STM32G4 Target*
 
 ---
 
-## 🚀 Key Features
+## 🎯 Architecture Overview
 
-* **⚡ 25 kHz Zero-Allocation FOC Core:** Space Vector Modulation (SVPWM) with 3rd-harmonic neutral point shift (+15.4% DC bus utilization).
-* **🛡️ Sub-Microsecond Hardware eFuse:** Instantaneous overcurrent circuit breaker (< 50ns) and real-time $I^2t$ thermal energy accumulator.
-* **🤖 Native Compliant Impedance Control:** Virtual programmable spring-damper model ($K_p, K_d, \tau_{ff}$) designed for humanoids and quadrupeds.
-* **🔧 10-Second Auto-Tuner:** Automated measurement of phase resistance ($R$), inductance ($L$), flux constant ($K_t$), and 360° anti-cogging ripple cancellation.
-* **📦 Bit-Packed CAN-FD Protocol:** Ultra-compact 8-byte frames for multi-axis daisy-chained joint synchronization.
-* **📼 Edge Flight Recorder:** Continuous 25 kHz circular in-memory ring buffer capturing pre- and post-incident forensic telemetry.
+ApexDrive is structured into four distinct, decoupled layers to bridge the gap between high-level robotics orchestration and low-level inverter electronics:
+
+```
+┌─────────────────────────────────────────────────────────────────────────────┐
+│ 1. ROBOTICS ORCHESTRATION & HIGH-LEVEL APIS                                 │
+│    • ROS 2 ros2_control SystemInterface Plugin (C++)                        │
+│    • Python Client SDK (`import apexdrive`)                                 │
+│    • Developer Diagnostic CLI (`apexdrive scan / monitor / bench`)          │
+└──────────────────────────────────────┬──────────────────────────────────────┘
+                                       │ 1 kHz CAN-FD (8-Byte Bit-Packed Protocol)
+┌──────────────────────────────────────▼──────────────────────────────────────┐
+│ 2. HOST TRANSPORT & PROTOCOL LAYER                                          │
+│    • Linux SocketCAN Driver (`socket(PF_CAN, SOCK_RAW, CAN_RAW)`)           │
+│    • High-Resolution Fixed-Point Frame Serialization (Q16 Position/Torque)  │
+│    • Cross-Platform Deterministic Simulation Testbench (macOS / Windows)    │
+└──────────────────────────────────────┬──────────────────────────────────────┘
+                                       │ Real-Time Bus Communication
+┌──────────────────────────────────────▼──────────────────────────────────────┐
+│ 3. CORE FOC VECTOR MATHEMATICS & SAFETY SUPERVISOR                          │
+│    • Forward/Inverse Clarke & Park Transformations                          │
+│    • Space Vector Modulation (SVPWM) with 3rd-Harmonic Neutral Point Shift  │
+│    • 256-Point Linear-Interpolated Anti-Cogging Harmonic Map                │
+│    • Cross-Coupling Voltage Decoupling Feedforward                          │
+│    • Sliding Mode Observer (SMO) Sensorless Back-EMF & Flux Estimator      │
+│    • I²t Thermal Energy Accumulator & Software Safety Supervisor            │
+└──────────────────────────────────────┬──────────────────────────────────────┘
+                                       │ Hardware Registers / DMA
+┌──────────────────────────────────────▼──────────────────────────────────────┐
+│ 4. BARE-METAL EMBEDDED FIRMWARE (`firmware/stm32g4`)                        │
+│    • 25 kHz Injected ADC Conversion ISR (Phase Current Shunt Sampling)      │
+│    • TIM1 Advanced Timer Center-Aligned Complementary PWM + 120ns Dead-Time │
+│    • Hardware Break Input (BKIN): Analog Comparator Safe Torque Off (STO)   │
+│    • 14-Bit SPI Magnetic Absolute Encoder Driver (AS5047P / MA730)          │
+└─────────────────────────────────────────────────────────────────────────────┘
+```
+
+---
+
+## 🚀 Key Capabilities
+
+* **⚡ FOC Vector Engine:** Zero-allocation Clarke/Park transforms, anti-windup current PI regulators, and SVPWM for +15.4% bus utilization.
+* **🛡️ Multi-Tier Safety Guard:** Sub-microsecond hardware Safe Torque Off (STO) via TIM1 break inputs paired with real-time software eFuse checks (Overcurrent, Overvoltage, UVLO brownout, Overtemp, and $I^2t$ thermal budgeting).
+* **🤖 Native Compliant Impedance Control:** Virtual programmable spring-damper control law ($\tau = K_p(\theta_d - \theta) + K_d(\dot{\theta}_d - \dot{\theta}) + \tau_{ff}$) designed for humanoids and quadrupeds.
+* **🔧 Anti-Cogging Feedforward:** 256-point high-resolution linear-interpolated lookup table (LUT) to eliminate stator slotting torque ripple.
+* **📡 Linux SocketCAN Transport:** Native SocketCAN-FD socket layer with automatic non-blocking frame polling and multi-axis discovery.
+* **🦾 ROS 2 Integration:** Production `ros2_control` hardware plugin (`apexdrive_hardware::ApexDriveHardware`) ready for URDF integration.
+* **📼 Edge Flight Recorder:** 25 kHz circular in-memory buffer that freezes on hardware fault for forensic incident investigation.
 
 ---
 
@@ -20,11 +61,12 @@
 
 ```bash
 # Clone the repository
-cd /Users/himand/apexdrive
+git clone https://github.com/Himan-D/apexdrive.git
+cd apexdrive
 
 # Build C++ Library, CLI, and Test Suite
 mkdir build && cd build
-cmake ..
+cmake -DCMAKE_BUILD_TYPE=Release ..
 make -j$(nproc)
 
 # Run the unit test suite
@@ -36,70 +78,63 @@ make -j$(nproc)
 ## 💻 CLI Commands
 
 ```bash
-# Scan the CAN-FD bus for connected joint actuators
-./apexdrive scan
+# Scan the CAN bus for connected joint actuators (uses Linux SocketCAN or mock fallback)
+./apexdrive scan --interface can0
 
-# Run 10-second automated electrical and anti-cogging calibration
+# Synthesize decoupled PI gains and anti-cogging map
 ./apexdrive tune --id 0x14
 
 # Launch real-time terminal telemetry HUD and oscilloscope
 ./apexdrive monitor --id 0x14
 
-# Dump forensic flight black-box incident report
+# Dump forensic black-box incident log
 ./apexdrive dump-blackbox
 
-# Run 100,000-cycle deterministic timing and FOC benchmark
+# Run host-side 1,000,000-cycle FOC math and supervisor latency benchmark
 ./apexdrive bench
 ```
 
 ---
 
-## 🦾 C++20 Client Integration Example
+## 🦾 ROS 2 Integration (`ros2_control`)
 
-```cpp
-#include <apexdrive/host/actuator.hpp>
-#include <iostream>
+In your robot's URDF description:
 
-int main() {
-    // Connect to Joint 0x14 on CAN-FD bus
-    apexdrive::Actuator knee("can0", 0x14);
-    knee.Arm();
-
-    // 1 kHz Compliant Control Loop
-    while (true) {
-        float target_pos_rad = 1.57f;  // 90 degrees
-        float target_vel_rad_s = 0.0f;
-        float stiffness_kp = 45.0f;    // 45 Nm/rad
-        float damping_kd = 2.5f;       // 2.5 Nm/(rad/s)
-        float tau_feedforward = 5.0f;  // Gravity compensation
-
-        knee.SetImpedance(target_pos_rad, target_vel_rad_s, stiffness_kp, damping_kd, tau_feedforward);
-
-        auto state = knee.GetState();
-        std::cout << "Knee Position: " << state.position_rad 
-                  << " rad | Torque: " << state.torque_nm << " Nm\n";
-    }
-}
+```xml
+<ros2_control name="ApexDriveSystem" type="system">
+  <hardware>
+    <plugin>apexdrive_hardware/ApexDriveHardware</plugin>
+    <param name="can_interface">can0</param>
+  </hardware>
+  <joint name="knee_joint">
+    <command_interface name="position"/>
+    <command_interface name="effort"/>
+    <state_interface name="position"/>
+    <state_interface name="velocity"/>
+    <state_interface name="effort"/>
+  </joint>
+</ros2_control>
 ```
 
 ---
 
-## 🐍 Python SDK Integration
+## 🐍 Python SDK (`import apexdrive`)
 
 ```python
 import apexdrive
 
+# Connect to actuator node on CAN bus
 joint = apexdrive.Actuator("can0", node_id=0x14)
 joint.arm()
 
-# Set compliant impedance
-joint.set_impedance(pos_rad=1.57, kp=40.0, kd=2.0, tau_ff=3.0)
+# Stream 1 kHz compliant impedance commands
+joint.set_impedance(pos_rad=1.57, kp=45.0, kd=2.5, tau_ff=1.2)
 
 state = joint.get_state()
-print(f"Angle: {state.position_rad:.3f} rad | Temp: {state.temperature_c:.1f} °C")
+print(f"Angle: {state.position_rad:.3f} rad | Torque: {state.torque_nm:.2f} Nm")
 ```
 
 ---
 
 ## 📄 License
-Apache 2.0 / Commercial Dual-License.
+Apache 2.0.
