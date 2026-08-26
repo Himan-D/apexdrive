@@ -1,11 +1,11 @@
 cmake_minimum_required(VERSION 3.20)
-project(apexdrive VERSION 1.0.0 LANGUAGES CXX)
+project(apexdrive VERSION 1.1.0 LANGUAGES CXX)
 
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 
-# Optimization and Strict Warning Flags
+# Strict Compilation Flags
 if(MSVC)
     add_compile_options(/W4 /WX /O2)
 else()
@@ -32,15 +32,22 @@ add_executable(apexdrive
 )
 target_link_libraries(apexdrive PRIVATE apexdrive_host)
 
-# 3. Unit Test Suite
+# 3. Unit Test Suite (Mathematical & Component Tests)
 add_executable(test_suite
     tests/test_suite.cpp
 )
 target_link_libraries(test_suite PRIVATE apexdrive_host)
 
+# 4. Hardware-Readiness & Closed-Loop Scenarios Test Suite
+add_executable(control_scenarios_test
+    tests/control_scenarios_test.cpp
+)
+target_link_libraries(control_scenarios_test PRIVATE apexdrive_host)
+
 # Enable CTest
 enable_testing()
 add_test(NAME ApexDriveUnitTests COMMAND test_suite)
+add_test(NAME ApexDriveControlScenarios COMMAND control_scenarios_test)
 
 # ==============================================================================
 # INSTALLATION & CPACK DISTRIBUTION (Debian / RPM / Homebrew / Tarball)
@@ -72,14 +79,12 @@ set(CPACK_PACKAGE_VERSION_PATCH ${PROJECT_VERSION_PATCH})
 set(CPACK_RESOURCE_FILE_LICENSE "${CMAKE_CURRENT_SOURCE_DIR}/LICENSE")
 set(CPACK_RESOURCE_FILE_README "${CMAKE_CURRENT_SOURCE_DIR}/README.md")
 
-# Debian (.deb) Generator Settings
 set(CPACK_DEBIAN_PACKAGE_MAINTAINER "Himan-D <dev@apexdrive.io>")
 set(CPACK_DEBIAN_PACKAGE_SECTION "science")
 set(CPACK_DEBIAN_PACKAGE_PRIORITY "optional")
 set(CPACK_DEBIAN_PACKAGE_DEPENDS "libc6 (>= 2.31), libstdc++6 (>= 11)")
 set(CPACK_DEBIAN_PACKAGE_HOMEPAGE "https://github.com/Himan-D/apexdrive")
 
-# RPM Generator Settings
 set(CPACK_RPM_PACKAGE_LICENSE "Apache-2.0")
 set(CPACK_RPM_PACKAGE_GROUP "Development/Tools")
 

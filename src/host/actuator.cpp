@@ -105,14 +105,15 @@ void Actuator::StepPhysics(float dt_s) {
 
     if (safety_state_ == SafetyState::OK && mode_ != OperatingMode::STANDBY && mode_ != OperatingMode::CALIBRATING) {
         // Base impedance torque
+        const float kt = profile_.GetDerivedKt();
         float base_iq = ImpedanceController::ComputeTorqueCurrent(
             last_command_, sim_pos_rad_, sim_vel_rad_s_, 
-            profile_.torque_constant_kt, profile_.peak_current_a
+            kt, profile_.peak_current_a
         );
 
         // Anti-cogging feedforward torque compensation
         float tau_cogging_comp = anti_cogging_map_.Lookup(sim_pos_rad_);
-        float iq_cogging = tau_cogging_comp / profile_.torque_constant_kt;
+        float iq_cogging = tau_cogging_comp / kt;
         target_iq = std::clamp(base_iq + iq_cogging, -profile_.peak_current_a, profile_.peak_current_a);
 
         // Dynamic Field Weakening at high speed
