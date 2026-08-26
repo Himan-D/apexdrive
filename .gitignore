@@ -1,0 +1,32 @@
+# Build directories
+build/
+bin/
+lib/
+out/
+.cache/
+
+# IDE & OS
+.DS_Store
+.vscode/
+.idea/
+*.swp
+*.swo
+compile_commands.json
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+dist/
+*.egg-info/
+.eggs/
+*.whl
+
+# CPack & Packaging
+_CPack_Packages/
+*.deb
+*.rpm
+*.tar.gz
+*.zip
+CPackConfig.cmake
+CPackSourceConfig.cmake

@@ -1,0 +1,106 @@
+name: Release & Multi-Platform Packaging
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+jobs:
+  build-release-binaries:
+    name: Build Binary • ${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      matrix:
+        include:
+          - os: ubuntu-22.04
+            artifact_name: apexdrive-linux-x86_64
+            pkg_type: deb
+          - os: macos-14
+            artifact_name: apexdrive-macos-arm64
+            pkg_type: tar
+          - os: windows-latest
+            artifact_name: apexdrive-windows-x64
+            pkg_type: zip
+
+    steps:
+      - name: Checkout Tag
+        uses: actions/checkout@v4
+
+      - name: Configure CMake
+        run: cmake -B build -DCMAKE_BUILD_TYPE=Release
+
+      - name: Build Binary
+        run: cmake --build build --config Release --parallel
+
+      - name: Run Tests
+        working-directory: build
+        run: ctest --output-on-failure -C Release
+
+      - name: Package Linux (.deb & .tar.gz)
+        if: runner.os == 'Linux'
+        working-directory: build
+        run: |
+          cpack -G "TGZ;DEB;RPM"
+          mkdir -p ../dist
+          cp *.deb *.rpm *.tar.gz ../dist/
+
+      - name: Package macOS (.tar.gz)
+        if: runner.os == 'macOS'
+        working-directory: build
+        run: |
+          cpack -G TGZ
+          mkdir -p ../dist
+          cp *.tar.gz ../dist/
+
+      - name: Package Windows (.zip)
+        if: runner.os == 'Windows'
+        working-directory: build
+        run: |
+          cpack -G ZIP
+          mkdir -p ../dist
+          copy *.zip ..\dist\
+
+      - name: Upload Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.artifact_name }}
+          path: dist/*
+
+  build-python-wheels:
+    name: Build Python Package
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Build Wheel & sdist
+        run: |
+          python -m pip install --upgrade pip build
+          cd python && python -m build --outdir ../dist/
+      - name: Upload Python Artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: python-dist
+          path: dist/*
+
+  publish-github-release:
+    name: Publish GitHub Release
+    needs: [build-release-binaries, build-python-wheels]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: release_assets/
+
+      - name: Create Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: release_assets/**/*
+          draft: false
+          prerelease: false
+          generate_release_notes: true

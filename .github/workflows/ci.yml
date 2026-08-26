@@ -1,0 +1,66 @@
+name: CI (Multi-Platform Matrix)
+
+on:
+  push:
+    branches: [ main, master ]
+  pull_request:
+    branches: [ main, master ]
+
+jobs:
+  build-and-test:
+    name: ${{ matrix.os }} • ${{ matrix.compiler }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-22.04
+            compiler: gcc-12
+            c_compiler: gcc-12
+            cxx_compiler: g++-12
+          - os: ubuntu-24.04
+            compiler: clang-18
+            c_compiler: clang-18
+            cxx_compiler: clang++-18
+          - os: macos-14
+            compiler: apple-clang
+            c_compiler: clang
+            cxx_compiler: clang++
+          - os: windows-latest
+            compiler: msvc
+            c_compiler: cl
+            cxx_compiler: cl
+
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Setup Linux Compiler
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y ${{ matrix.cxx_compiler }} libsocketcan-dev
+
+      - name: Configure CMake
+        run: >
+          cmake -B build
+          -DCMAKE_BUILD_TYPE=Release
+          ${{ matrix.c_compiler != 'cl' && format('-DCMAKE_C_COMPILER={0} -DCMAKE_CXX_COMPILER={1}', matrix.c_compiler, matrix.cxx_compiler) || '' }}
+
+      - name: Build Library, CLI & Tests
+        run: cmake --build build --config Release --parallel
+
+      - name: Run Test Suite
+        working-directory: build
+        run: ctest --output-on-failure -C Release
+
+      - name: Run Deterministic Real-Time Benchmark
+        working-directory: build
+        run: |
+          ${{ runner.os == 'Windows' && 'Release\\apexdrive.exe bench' || './apexdrive bench' }}
+          ${{ runner.os == 'Windows' && 'Release\\apexdrive.exe scan' || './apexdrive scan' }}
+
+      - name: Verify CPack Packaging (.deb / .tar.gz)
+        if: runner.os == 'Linux'
+        working-directory: build
+        run: cpack -G "TGZ;DEB"
