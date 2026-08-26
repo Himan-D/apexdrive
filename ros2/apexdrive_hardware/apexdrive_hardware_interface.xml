@@ -1,0 +1,9 @@
+<library path="apexdrive_hardware">
+  <class name="apexdrive_hardware/ApexDriveHardware"
+         type="apexdrive_hardware::ApexDriveHardware"
+         base_class_type="hardware_interface::SystemInterface">
+    <description>
+      Official ros2_control Hardware Interface for ApexDrive Robotics Joint Actuators.
+    </description>
+  </class>
+</library>
