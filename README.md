@@ -1,7 +1,7 @@
 # ApexDrive
 
 [![CI Multi-Platform](https://github.com/Himan-D/apexdrive/actions/workflows/ci.yml/badge.svg)](https://github.com/Himan-D/apexdrive/actions/workflows/ci.yml)
-[![PyPI](https://img.shields.io/pypi/v/apexdrive-core.svg)](https://pypi.org/project/apexdrive-core/)
+[![PyPI](https://img.shields.io/pypi/v/apexdrive.svg)](https://pypi.org/project/apexdrive/)
 [![License](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](https://opensource.org/licenses/Apache-2.0)
 [![ROS 2](https://img.shields.io/badge/ROS_2-Humble_%7C_Jazzy-brightgreen.svg)](https://docs.ros.org/en/humble/)
 [![Platforms](https://img.shields.io/badge/Platforms-Linux_%7C_macOS_%7C_Windows_%7C_STM32G4-lightgrey.svg)](https://github.com/Himan-D/apexdrive)
@@ -15,7 +15,7 @@
 
 | Channel | Method / Command | Description |
 | :--- | :--- | :--- |
-| **PyPI (Python Package Index)** | `pip install apexdrive-core` | High-level Python Client SDK & simulation bindings |
+| **PyPI (Python Package Index)** | `pip install apexdrive` | High-level Python Client SDK & simulation bindings |
 | **Homebrew (macOS / Linux)** | `brew install Himan-D/apexdrive/apexdrive` | Standalone Developer CLI diagnostic tool |
 | **Debian / Ubuntu Package** | `sudo dpkg -i apexdrive_1.1.0_amd64.deb` | Pre-compiled Linux CLI & `libapexdrive_host.a` |
 | **Docker (GHCR)** | `docker pull ghcr.io/himan-d/apexdrive:latest` | Multi-arch Linux runtime (`amd64`, `arm64`) |
@@ -189,7 +189,7 @@ The `apexdrive_hardware` package provides a standardized `hardware_interface::Sy
 
 Install from PyPI:
 ```bash
-pip install apexdrive-core
+pip install apexdrive
 ```
 
 Usage Example:

@@ -9,8 +9,8 @@ if os.path.exists(readme_path):
         long_description = fh.read()
 
 setup(
-    name="apexdrive-core",
-    version="1.1.1",
+    name="apexdrive",
+    version="1.1.0",
     description="Universal High-Performance Robotics Actuator & Motor Control Engine",
     long_description=long_description,
     long_description_content_type="text/markdown",
