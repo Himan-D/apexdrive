@@ -9,13 +9,13 @@
 namespace apexdrive {
 
 /**
- * High-Performance, Zero-Allocation Field-Oriented Control (FOC) Vector Core.
- * Includes:
- * 1. Forward/Inverse Clarke and Park Transforms.
- * 2. Cross-Coupling Voltage Decoupling Feedforward.
- * 3. Dynamic Field Weakening (MTPA / FW) for extended high-speed operation.
- * 4. Branchless Space Vector Modulation (SVPWM) with 3rd-harmonic injection.
- * 5. High-Bandwidth Anti-Windup PI Controllers.
+ * Enterprise FOC Vector Core:
+ * - Forward/Inverse Clarke and Park Transforms.
+ * - Back-Calculation Anti-Windup Current PI Regulators.
+ * - Salient PMSM Reluctance + Permanent Magnet Torque Calculation.
+ * - Decoupled Cross-Coupling Voltage Feedforward.
+ * - Dynamic Field Weakening (FW) closed-loop voltage controller.
+ * - Space Vector PWM (SVPWM) with center-aligned common-mode injection.
  */
 class FocMath {
 public:
@@ -40,17 +40,16 @@ public:
         float w{0.5f};
     };
 
-    // Forward Clarke Transform: 3-Phase currents (Ia, Ib, Ic) -> Stationary frame (Alpha, Beta)
-    // Assumes balanced 3-phase system (Ia + Ib + Ic = 0)
+    // Forward Clarke: 3-Phase currents -> Stationary Alpha-Beta Frame
     [[nodiscard]] static constexpr inline AlphaBeta Clarke(float ia, float ib, float ic) noexcept {
-        (void)ic;
+        (void)ic; // Assumes balanced system ia + ib + ic = 0
         return AlphaBeta{
             .alpha = ia,
             .beta  = (ia + 2.0f * ib) * ONE_BY_SQRT3
         };
     }
 
-    // Forward Park Transform: Stationary frame (Alpha, Beta) -> Rotating rotor frame (d, q)
+    // Forward Park: Stationary Alpha-Beta -> Rotating Rotor DQ Frame
     [[nodiscard]] static inline DirectQuadrature Park(AlphaBeta ab, float electrical_angle_rad) noexcept {
         const float sin_t = std::sin(electrical_angle_rad);
         const float cos_t = std::cos(electrical_angle_rad);
@@ -60,7 +59,7 @@ public:
         };
     }
 
-    // Inverse Park Transform: Rotating frame (d, q) -> Stationary frame (Alpha, Beta)
+    // Inverse Park: Rotating DQ Frame -> Stationary Alpha-Beta Frame
     [[nodiscard]] static inline AlphaBeta InversePark(DirectQuadrature dq, float electrical_angle_rad) noexcept {
         const float sin_t = std::sin(electrical_angle_rad);
         const float cos_t = std::cos(electrical_angle_rad);
@@ -71,10 +70,9 @@ public:
     }
 
     /**
-     * Cross-Coupling Voltage Decoupling Feedforward.
-     * At high speeds, rotating magnetic flux cross-couples between d and q axes:
+     * Cross-Coupling Voltage Decoupling Feedforward:
      *   V_d_ff = -omega_e * L_q * I_q
-     *   V_q_ff = +omega_e * (L_d * I_d + lambda_m)
+     *   V_q_ff = +omega_e * (L_d * I_d + psi_f)
      */
     [[nodiscard]] static inline DirectQuadrature DecoupleCrossCoupling(
         DirectQuadrature v_pi_cmd,
@@ -94,9 +92,20 @@ public:
     }
 
     /**
-     * Dynamic Field Weakening Controller.
-     * When commanded voltage approaches DC bus limit (V_bus / sqrt(3)), injects negative Id current
-     * to counteract permanent magnet flux, expanding motor top speed by up to 50%.
+     * PMSM Electromagnetic Torque Equation (Permanent Magnet + Reluctance Torque):
+     *   Te = 1.5 * p * [ psi_f * i_q + (L_d - L_q) * i_d * i_q ]
+     */
+    [[nodiscard]] static inline float ComputeElectromagneticTorque(
+        float id, float iq, float pole_pairs, float flux_linkage_wb, float ld_h, float lq_h
+    ) noexcept {
+        const float pm_torque = flux_linkage_wb * iq;
+        const float reluctance_torque = (ld_h - lq_h) * id * iq;
+        return 1.5f * pole_pairs * (pm_torque + reluctance_torque);
+    }
+
+    /**
+     * Closed-Loop Field Weakening Controller:
+     * Injects demagnetizing negative Id current when voltage vector magnitude exceeds bus limit.
      */
     [[nodiscard]] static inline float ComputeFieldWeakeningId(
         float v_cmd_mag,
@@ -114,8 +123,8 @@ public:
     }
 
     /**
-     * High-Speed Space Vector PWM (SVPWM) with 3rd-Harmonic Neutral Point Shift.
-     * Yields +15.4% greater voltage utilization over standard sinusoidal modulation.
+     * Center-Aligned Space Vector PWM (SVPWM) with Min/Max Common-Mode Injection:
+     * Yields +15.4% greater bus voltage utilization over pure sinusoidal PWM.
      */
     [[nodiscard]] static inline InverterDutyCycles Svpwm(AlphaBeta v_ab, float v_bus) noexcept {
         if (v_bus < 1.0f) {
@@ -127,7 +136,6 @@ public:
         const float v_b = (-0.5f * v_ab.alpha + SQRT3_BY_TWO * v_ab.beta) * inv_vbus;
         const float v_c = (-0.5f * v_ab.alpha - SQRT3_BY_TWO * v_ab.beta) * inv_vbus;
 
-        // Branchless min/max for sub-microsecond DSP execution
         const float v_max = std::max({v_a, v_b, v_c});
         const float v_min = std::min({v_a, v_b, v_c});
         const float v_com = 0.5f * (v_max + v_min);
@@ -141,33 +149,39 @@ public:
 };
 
 /**
- * Hard Real-Time PI Current Regulator with Anti-Windup and Output Clamping.
+ * Industrial PI Controller with Back-Calculation Anti-Windup and Output Saturation.
  */
 class PiController {
 public:
     constexpr PiController() = default;
-    constexpr PiController(float kp, float ki, float limit) noexcept
-        : kp_(kp), ki_(ki), limit_(limit), integrator_(0.0f) {}
+    constexpr PiController(float kp, float ki, float limit, float kaw = -1.0f) noexcept
+        : kp_(kp), ki_(ki), limit_(limit), 
+          kaw_(kaw > 0.0f ? kaw : (kp > 1e-4f ? 1.0f / kp : 1.0f)), 
+          integrator_(0.0f) {}
 
     void Reset() noexcept {
         integrator_ = 0.0f;
     }
 
-    void SetGains(float kp, float ki, float limit) noexcept {
+    void SetGains(float kp, float ki, float limit, float kaw = -1.0f) noexcept {
         kp_ = kp;
         ki_ = ki;
         limit_ = limit;
+        kaw_ = (kaw > 0.0f ? kaw : (kp > 1e-4f ? 1.0f / kp : 1.0f));
     }
 
     [[nodiscard]] float Update(float error, float dt) noexcept {
         const float p_term = kp_ * error;
-        
-        // Integrator update with conditional clamping
-        integrator_ += ki_ * error * dt;
+        const float u_unsat = p_term + integrator_;
+        const float u_sat = std::clamp(u_unsat, -limit_, limit_);
+
+        // Back-calculation anti-windup:
+        // dI/dt = Ki * error + Kaw * (u_sat - u_unsat)
+        const float windup_diff = u_sat - u_unsat;
+        integrator_ += (ki_ * error + kaw_ * windup_diff) * dt;
         integrator_ = std::clamp(integrator_, -limit_, limit_);
 
-        const float output = p_term + integrator_;
-        return std::clamp(output, -limit_, limit_);
+        return u_sat;
     }
 
     [[nodiscard]] float GetIntegrator() const noexcept { return integrator_; }
@@ -178,6 +192,7 @@ private:
     float kp_{0.0f};
     float ki_{0.0f};
     float limit_{0.0f};
+    float kaw_{1.0f};
     float integrator_{0.0f};
 };
 

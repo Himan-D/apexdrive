@@ -4,109 +4,118 @@
 #include <cstdint>
 #include <cstring>
 #include <algorithm>
+#include <cmath>
 
 namespace apexdrive {
 
 /**
- * High-Speed 1Mbps CAN-FD Bit-Packed Binary Frame Protocol.
- * Packed for minimal latency on multi-axis daisy-chained robot buses.
+ * 8-Byte High-Efficiency Bit-Packed CAN-FD Binary Protocol.
+ * 
+ * Command Frame (Host -> Actuator, 8 Bytes):
+ * [0..1] Target Position Q15: [-4pi, +4pi] rad  -> int16_t [-32768, +32767]
+ * [2..3] Target Velocity Q15: [-50, +50] rad/s  -> int16_t [-32768, +32767]
+ * [4]    Stiffness Kp:        [0, 500] Nm/rad   -> uint8_t  [0, 255]
+ * [5]    Damping Kd:          [0, 25] Nm*s/rad  -> uint8_t  [0, 255]
+ * [6..7] Feedforward Tau Q15: [-100, +100] Nm   -> int16_t [-32768, +32767]
+ * 
+ * Telemetry Frame (Actuator -> Host, 8 Bytes):
+ * [0..1] Measured Pos Q15:    [-4pi, +4pi] rad  -> int16_t [-32768, +32767]
+ * [2..3] Measured Vel Q15:    [-50, +50] rad/s  -> int16_t [-32768, +32767]
+ * [4..5] Measured Torque Q15: [-100, +100] Nm   -> int16_t [-32768, +32767]
+ * [6]    Winding Temp:        [0, 150] °C       -> uint8_t  [0, 255]
+ * [7]    State & Faults:      [0..3] State (4b) | [4..7] Faults (4b)
  */
 class CanProtocol {
 public:
-    static constexpr uint32_t CAN_ID_COMMAND_BASE    = 0x100;
-    static constexpr uint32_t CAN_ID_TELEMETRY_BASE  = 0x200;
-    static constexpr uint32_t CAN_ID_HEARTBEAT_BASE  = 0x300;
+    static constexpr float POS_MAX_RAD = 12.566370614359172f; // 4 * pi
+    static constexpr float VEL_MAX_RAD_S = 50.0f;
+    static constexpr float TORQUE_MAX_NM = 100.0f;
+    static constexpr float KP_MAX = 500.0f;
+    static constexpr float KD_MAX = 25.0f;
+    static constexpr float TEMP_MAX_C = 150.0f;
 
-    // Packed 8-Byte Impedance Command Frame
-    struct __attribute__((packed)) PackedCommandFrame {
-        uint16_t target_pos_q16;     // Pos in radians mapped to [ -4pi, +4pi ]
-        int16_t  target_vel_q12;     // Vel in rad/s mapped to [ -50, +50 ]
-        uint8_t  stiffness_kp_q8;    // Kp mapped to [ 0, 500 ]
-        uint8_t  damping_kd_q8;      // Kd mapped to [ 0, 25 ]
-        int16_t  torque_ff_q12;      // Feedforward Torque mapped to [ -100, +100 ]
-    };
+    // Symmetric Signed Q15 Quantization Helpers
+    [[nodiscard]] static constexpr inline int16_t QuantizeQ15(float val, float max_val) noexcept {
+        float clamped = std::clamp(val, -max_val, max_val);
+        return static_cast<int16_t>((clamped / max_val) * 32767.0f);
+    }
 
-    // Packed 8-Byte Telemetry Feedback Frame
-    struct __attribute__((packed)) PackedTelemetryFrame {
-        uint16_t actual_pos_q16;     // Pos in radians [ -4pi, +4pi ]
-        int16_t  actual_vel_q12;     // Vel in rad/s [ -50, +50 ]
-        int16_t  measured_torque_q12;// Torque in Nm [ -100, +100 ]
-        uint8_t  temperature_c;      // Temperature in °C [ 0, 255 ]
-        uint8_t  state_and_fault;    // Lower 4 bits: State, Upper 4 bits: Fault flag
-    };
+    [[nodiscard]] static constexpr inline float DequantizeQ15(int16_t raw, float max_val) noexcept {
+        return (static_cast<float>(raw) / 32767.0f) * max_val;
+    }
 
-    // Serialization: Convert High-Level Command -> 8-Byte CAN Frame
-    static void EncodeImpedanceCommand(const ImpedanceCommand& cmd, uint8_t out_data[8]) noexcept {
-        PackedCommandFrame frame;
+    // Command Packing
+    static void EncodeImpedanceCommand(const ImpedanceCommand& cmd, uint8_t out_bytes[8]) noexcept {
+        int16_t pos_q15 = QuantizeQ15(cmd.target_pos_rad, POS_MAX_RAD);
+        int16_t vel_q15 = QuantizeQ15(cmd.target_vel_rad_s, VEL_MAX_RAD_S);
+        uint8_t kp_u8   = static_cast<uint8_t>(std::clamp(cmd.stiffness_kp / KP_MAX, 0.0f, 1.0f) * 255.0f);
+        uint8_t kd_u8   = static_cast<uint8_t>(std::clamp(cmd.damping_kd / KD_MAX, 0.0f, 1.0f) * 255.0f);
+        int16_t tau_q15 = QuantizeQ15(cmd.feedforward_torque_nm, TORQUE_MAX_NM);
+
+        out_bytes[0] = static_cast<uint8_t>(pos_q15 & 0xFF);
+        out_bytes[1] = static_cast<uint8_t>((pos_q15 >> 8) & 0xFF);
+        out_bytes[2] = static_cast<uint8_t>(vel_q15 & 0xFF);
+        out_bytes[3] = static_cast<uint8_t>((vel_q15 >> 8) & 0xFF);
+        out_bytes[4] = kp_u8;
+        out_bytes[5] = kd_u8;
+        out_bytes[6] = static_cast<uint8_t>(tau_q15 & 0xFF);
+        out_bytes[7] = static_cast<uint8_t>((tau_q15 >> 8) & 0xFF);
+    }
+
+    [[nodiscard]] static ImpedanceCommand DecodeImpedanceCommand(const uint8_t in_bytes[8]) noexcept {
+        int16_t pos_q15 = static_cast<int16_t>(in_bytes[0] | (in_bytes[1] << 8));
+        int16_t vel_q15 = static_cast<int16_t>(in_bytes[2] | (in_bytes[3] << 8));
+        uint8_t kp_u8   = in_bytes[4];
+        uint8_t kd_u8   = in_bytes[5];
+        int16_t tau_q15 = static_cast<int16_t>(in_bytes[6] | (in_bytes[7] << 8));
+
+        return ImpedanceCommand{
+            .target_pos_rad = DequantizeQ15(pos_q15, POS_MAX_RAD),
+            .target_vel_rad_s = DequantizeQ15(vel_q15, VEL_MAX_RAD_S),
+            .stiffness_kp = (static_cast<float>(kp_u8) / 255.0f) * KP_MAX,
+            .damping_kd = (static_cast<float>(kd_u8) / 255.0f) * KD_MAX,
+            .feedforward_torque_nm = DequantizeQ15(tau_q15, TORQUE_MAX_NM)
+        };
+    }
+
+    // Telemetry Packing
+    static void EncodeTelemetry(const JointTelemetry& telem, uint8_t out_bytes[8]) noexcept {
+        int16_t pos_q15 = QuantizeQ15(telem.position_rad, POS_MAX_RAD);
+        int16_t vel_q15 = QuantizeQ15(telem.velocity_rad_s, VEL_MAX_RAD_S);
+        int16_t tau_q15 = QuantizeQ15(telem.torque_nm, TORQUE_MAX_NM);
+        uint8_t temp_u8 = static_cast<uint8_t>(std::clamp(telem.temperature_c / TEMP_MAX_C, 0.0f, 1.0f) * 255.0f);
         
-        // Map Position [-4pi, +4pi] -> [0, 65535]
-        const float pos_clamped = std::clamp(cmd.target_pos_rad, -12.56637f, 12.56637f);
-        frame.target_pos_q16 = static_cast<uint16_t>(((pos_clamped + 12.56637f) / 25.13274f) * 65535.0f);
+        // Low nibble: OperatingMode, High nibble: active fault flags (masked to 4 bits)
+        uint8_t state_nibble = static_cast<uint8_t>(telem.mode) & 0x0F;
+        uint8_t fault_nibble = static_cast<uint8_t>(telem.fault_flags & 0x0F) << 4;
+        uint8_t status_byte  = state_nibble | fault_nibble;
 
-        // Map Velocity [-50, +50] -> [-2048, 2047]
-        const float vel_clamped = std::clamp(cmd.target_vel_rad_s, -50.0f, 50.0f);
-        frame.target_vel_q12 = static_cast<int16_t>((vel_clamped / 50.0f) * 2047.0f);
-
-        // Map Kp [0, 500] -> [0, 255]
-        frame.stiffness_kp_q8 = static_cast<uint8_t>((std::clamp(cmd.stiffness_kp, 0.0f, 500.0f) / 500.0f) * 255.0f);
-
-        // Map Kd [0, 25] -> [0, 255]
-        frame.damping_kd_q8 = static_cast<uint8_t>((std::clamp(cmd.damping_kd, 0.0f, 25.0f) / 25.0f) * 255.0f);
-
-        // Map Torque FF [-100, +100] -> [-2048, 2047]
-        const float tau_clamped = std::clamp(cmd.feedforward_torque_nm, -100.0f, 100.0f);
-        frame.torque_ff_q12 = static_cast<int16_t>((tau_clamped / 100.0f) * 2047.0f);
-
-        std::memcpy(out_data, &frame, 8);
+        out_bytes[0] = static_cast<uint8_t>(pos_q15 & 0xFF);
+        out_bytes[1] = static_cast<uint8_t>((pos_q15 >> 8) & 0xFF);
+        out_bytes[2] = static_cast<uint8_t>(vel_q15 & 0xFF);
+        out_bytes[3] = static_cast<uint8_t>((vel_q15 >> 8) & 0xFF);
+        out_bytes[4] = static_cast<uint8_t>(tau_q15 & 0xFF);
+        out_bytes[5] = static_cast<uint8_t>((tau_q15 >> 8) & 0xFF);
+        out_bytes[6] = temp_u8;
+        out_bytes[7] = status_byte;
     }
 
-    // Deserialization: Convert 8-Byte CAN Frame -> High-Level Command
-    static ImpedanceCommand DecodeImpedanceCommand(const uint8_t in_data[8]) noexcept {
-        PackedCommandFrame frame;
-        std::memcpy(&frame, in_data, 8);
-
-        ImpedanceCommand cmd;
-        cmd.target_pos_rad = (static_cast<float>(frame.target_pos_q16) / 65535.0f) * 25.13274f - 12.56637f;
-        cmd.target_vel_rad_s = (static_cast<float>(frame.target_vel_q12) / 2047.0f) * 50.0f;
-        cmd.stiffness_kp = (static_cast<float>(frame.stiffness_kp_q8) / 255.0f) * 500.0f;
-        cmd.damping_kd = (static_cast<float>(frame.damping_kd_q8) / 255.0f) * 25.0f;
-        cmd.feedforward_torque_nm = (static_cast<float>(frame.torque_ff_q12) / 2047.0f) * 100.0f;
-
-        return cmd;
-    }
-
-    // Serialization: Convert Telemetry -> 8-Byte CAN Frame
-    static void EncodeTelemetry(const JointTelemetry& telem, uint8_t out_data[8]) noexcept {
-        PackedTelemetryFrame frame;
-        
-        const float pos_clamped = std::clamp(telem.position_rad, -12.56637f, 12.56637f);
-        frame.actual_pos_q16 = static_cast<uint16_t>(((pos_clamped + 12.56637f) / 25.13274f) * 65535.0f);
-
-        const float vel_clamped = std::clamp(telem.velocity_rad_s, -50.0f, 50.0f);
-        frame.actual_vel_q12 = static_cast<int16_t>((vel_clamped / 50.0f) * 2047.0f);
-
-        const float tau_clamped = std::clamp(telem.torque_nm, -100.0f, 100.0f);
-        frame.measured_torque_q12 = static_cast<int16_t>((tau_clamped / 100.0f) * 2047.0f);
-
-        frame.temperature_c = static_cast<uint8_t>(std::clamp(telem.temperature_c, 0.0f, 255.0f));
-        frame.state_and_fault = static_cast<uint8_t>(static_cast<uint8_t>(telem.state) & 0x0F);
-
-        std::memcpy(out_data, &frame, 8);
-    }
-
-    // Deserialization: Convert 8-Byte CAN Frame -> Telemetry
-    static JointTelemetry DecodeTelemetry(uint8_t node_id, const uint8_t in_data[8]) noexcept {
-        PackedTelemetryFrame frame;
-        std::memcpy(&frame, in_data, 8);
+    [[nodiscard]] static JointTelemetry DecodeTelemetry(const uint8_t in_bytes[8], uint8_t node_id) noexcept {
+        int16_t pos_q15 = static_cast<int16_t>(in_bytes[0] | (in_bytes[1] << 8));
+        int16_t vel_q15 = static_cast<int16_t>(in_bytes[2] | (in_bytes[3] << 8));
+        int16_t tau_q15 = static_cast<int16_t>(in_bytes[4] | (in_bytes[5] << 8));
+        uint8_t temp_u8 = in_bytes[6];
+        uint8_t status  = in_bytes[7];
 
         JointTelemetry telem;
         telem.node_id = node_id;
-        telem.position_rad = (static_cast<float>(frame.actual_pos_q16) / 65535.0f) * 25.13274f - 12.56637f;
-        telem.velocity_rad_s = (static_cast<float>(frame.actual_vel_q12) / 2047.0f) * 50.0f;
-        telem.torque_nm = (static_cast<float>(frame.measured_torque_q12) / 2047.0f) * 100.0f;
-        telem.temperature_c = static_cast<float>(frame.temperature_c);
-        telem.state = static_cast<DriveState>(frame.state_and_fault & 0x0F);
-
+        telem.mode = static_cast<OperatingMode>(status & 0x0F);
+        telem.fault_flags = static_cast<uint32_t>((status >> 4) & 0x0F);
+        telem.safety_state = (telem.fault_flags != 0) ? SafetyState::FAULT_STOP : SafetyState::OK;
+        telem.position_rad = DequantizeQ15(pos_q15, POS_MAX_RAD);
+        telem.velocity_rad_s = DequantizeQ15(vel_q15, VEL_MAX_RAD_S);
+        telem.torque_nm = DequantizeQ15(tau_q15, TORQUE_MAX_NM);
+        telem.temperature_c = (static_cast<float>(temp_u8) / 255.0f) * TEMP_MAX_C;
         return telem;
     }
 };

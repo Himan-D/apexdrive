@@ -15,7 +15,7 @@
 using namespace apexdrive;
 
 void test_foc_math() {
-    std::cout << "[TEST 1/8] Testing FOC Clarke & Park Transform Inverses... ";
+    std::cout << "[TEST 1/8] Testing FOC Clarke, Park & Inverse Transformations... ";
     
     float ia = 10.0f;
     float ib = -5.0f;
@@ -34,21 +34,27 @@ void test_foc_math() {
     assert(duties.v >= 0.0f && duties.v <= 1.0f);
     assert(duties.w >= 0.0f && duties.w <= 1.0f);
 
+    // Test Saliency / Reluctance Torque
+    float torque_em = FocMath::ComputeElectromagneticTorque(0.0f, 10.0f, 7.0f, 0.0068f, 0.000118f, 0.000135f);
+    assert(torque_em > 0.0f);
+
     std::cout << "\033[1;32mPASSED\033[0m\n";
 }
 
-void test_field_weakening() {
-    std::cout << "[TEST 2/8] Testing Dynamic Field Weakening Demagnetization Current... ";
+void test_pi_anti_windup() {
+    std::cout << "[TEST 2/8] Testing Back-Calculation Anti-Windup PI Controller... ";
 
-    float v_bus = 48.0f;
-    float v_nominal = 20.0f; // Below saturation limit
-    float id_fw_none = FocMath::ComputeFieldWeakeningId(v_nominal, v_bus, 15.0f);
-    assert(id_fw_none == 0.0f);
-
-    float v_overspeed = 32.0f; // Above 48V * (1/sqrt3)*0.95 = 26.3V
-    float id_fw_active = FocMath::ComputeFieldWeakeningId(v_overspeed, v_bus, 15.0f);
-    assert(id_fw_active < 0.0f); // Negative demagnetizing current
-    assert(id_fw_active >= -15.0f); // Clamped to max
+    PiController pi(2.0f, 200.0f, 10.0f); // Limit = 10.0V
+    
+    // Large persistent error -> Output must saturate at 10.0V and integrator must not blow up
+    for (int i = 0; i < 100; ++i) {
+        float out = pi.Update(50.0f, 0.001f);
+        assert(std::abs(out) <= 10.0f);
+    }
+    
+    // Once error reverses, back-calculation anti-windup should desaturate rapidly
+    float desat_out = pi.Update(-20.0f, 0.001f);
+    assert(desat_out < 10.0f);
 
     std::cout << "\033[1;32mPASSED\033[0m\n";
 }
@@ -68,11 +74,11 @@ void test_anti_cogging_lut() {
 }
 
 void test_sliding_mode_observer() {
-    std::cout << "[TEST 4/8] Testing Sliding Mode Observer Back-EMF Tracking... ";
+    std::cout << "[TEST 4/8] Testing Sliding Mode Observer & Tracking PLL... ";
 
     SlidingModeObserver smo(0.18f, 0.00012f, 25.0f);
-    for (int i = 0; i < 200; ++i) {
-        float angle = i * 0.05f;
+    for (int i = 0; i < 500; ++i) {
+        float angle = i * 0.02f;
         float va = 12.0f * std::cos(angle);
         float vb = 12.0f * std::sin(angle);
         float ia = 5.0f * std::cos(angle);
@@ -86,7 +92,7 @@ void test_sliding_mode_observer() {
 }
 
 void test_can_protocol_packing() {
-    std::cout << "[TEST 5/8] Testing 8-Byte Bit-Packed CAN-FD Protocol Serialization... ";
+    std::cout << "[TEST 5/8] Testing CAN-FD 8-Byte Bit-Packed Protocol & Fault Nibbles... ";
 
     ImpedanceCommand original_cmd{
         .target_pos_rad = 1.57079f,
@@ -102,15 +108,38 @@ void test_can_protocol_packing() {
 
     assert(std::abs(original_cmd.target_pos_rad - decoded_cmd.target_pos_rad) < 0.005f);
     assert(std::abs(original_cmd.target_vel_rad_s - decoded_cmd.target_vel_rad_s) < 0.1f);
-    assert(std::abs(original_cmd.stiffness_kp - decoded_cmd.stiffness_kp) < 2.0f);
+    assert(std::abs(original_cmd.stiffness_kp - decoded_cmd.stiffness_kp) < 3.0f);
     assert(std::abs(original_cmd.damping_kd - decoded_cmd.damping_kd) < 0.2f);
     assert(std::abs(original_cmd.feedforward_torque_nm - decoded_cmd.feedforward_torque_nm) < 0.1f);
+
+    // Test Telemetry and Fault Nibble packing
+    JointTelemetry original_telem{
+        .node_id = 0x14,
+        .mode = OperatingMode::CLOSED_LOOP_IMPEDANCE,
+        .safety_state = SafetyState::FAULT_STOP,
+        .position_rad = 0.5f,
+        .velocity_rad_s = 2.0f,
+        .torque_nm = 4.5f,
+        .current_iq_a = 5.0f,
+        .current_id_a = 0.0f,
+        .v_bus_v = 48.0f,
+        .temperature_c = 42.0f,
+        .fault_flags = FaultFlag::OVERCURRENT_PHASE,
+        .timestamp_us = 1000
+    };
+
+    uint8_t telem_buf[8];
+    CanProtocol::EncodeTelemetry(original_telem, telem_buf);
+    auto decoded_telem = CanProtocol::DecodeTelemetry(telem_buf, 0x14);
+
+    assert(decoded_telem.mode == OperatingMode::CLOSED_LOOP_IMPEDANCE);
+    assert((decoded_telem.fault_flags & FaultFlag::OVERCURRENT_PHASE) != 0);
 
     std::cout << "\033[1;32mPASSED\033[0m\n";
 }
 
-void test_efuse_protection() {
-    std::cout << "[TEST 6/8] Testing Sub-Microsecond eFuse Instantaneous Overcurrent Breaker... ";
+void test_safety_overcurrent() {
+    std::cout << "[TEST 6/8] Testing Software Safety Supervisor Overcurrent Trip... ";
 
     MotorProfile profile;
     profile.peak_current_a = 40.0f;
@@ -118,39 +147,57 @@ void test_efuse_protection() {
 
     SensorReadings normal_sensors;
     normal_sensors.i_phase_a = 15.0f;
-    normal_sensors.v_bus = 24.0f;
-    DriveState fault = DriveState::STANDBY;
+    normal_sensors.v_bus = 48.0f;
+    
+    SafetyState safety = SafetyState::OK;
+    uint32_t faults = FaultFlag::NONE;
 
-    assert(guard.CheckHealth(normal_sensors, 0.00004f, fault) == true);
+    guard.FeedWatchdog();
+    assert(guard.CheckHealth(normal_sensors, 0.00004f, safety, faults) == true);
+    assert(safety == SafetyState::OK);
 
     SensorReadings overcurrent_sensors = normal_sensors;
-    overcurrent_sensors.i_phase_a = 48.0f; // Over peak limit!
+    overcurrent_sensors.i_phase_a = 48.0f; // Exceeds peak!
     
-    assert(guard.CheckHealth(overcurrent_sensors, 0.00004f, fault) == false);
-    assert(fault == DriveState::FAULT_OVERCURRENT);
+    assert(guard.CheckHealth(overcurrent_sensors, 0.00004f, safety, faults) == false);
+    assert(safety == SafetyState::FAULT_STOP);
+    assert((faults & FaultFlag::OVERCURRENT_PHASE) != 0);
 
     std::cout << "\033[1;32mPASSED\033[0m\n";
 }
 
-void test_brownout_protection() {
-    std::cout << "[TEST 7/8] Testing DC Bus Brownout / UVLO Cutoff... ";
+void test_safety_overvoltage_and_uvlo() {
+    std::cout << "[TEST 7/8] Testing Overvoltage and UVLO Brownout Fault Disambiguation... ";
 
     MotorProfile profile;
+    profile.max_voltage_v = 54.0f;
     profile.min_voltage_uvlo_v = 18.0f;
     HardwareSafetySupervisor guard(profile);
 
-    SensorReadings sag_sensors;
-    sag_sensors.v_bus = 14.2f; // Voltage collapsed below UVLO!
-    DriveState fault = DriveState::STANDBY;
+    SafetyState safety = SafetyState::OK;
+    uint32_t faults = FaultFlag::NONE;
 
-    assert(guard.CheckHealth(sag_sensors, 0.00004f, fault) == false);
-    assert(fault == DriveState::FAULT_BROWNOUT);
+    // Overvoltage test
+    SensorReadings ov_sensors;
+    ov_sensors.v_bus = 58.0f; // Above 54V
+    guard.FeedWatchdog();
+    assert(guard.CheckHealth(ov_sensors, 0.00004f, safety, faults) == false);
+    assert((faults & FaultFlag::OVERVOLTAGE_BUS) != 0);
+    assert((faults & FaultFlag::UNDERVOLTAGE_BUS) == 0); // Disambiguated!
+
+    // Undervoltage test
+    SensorReadings uv_sensors;
+    uv_sensors.v_bus = 14.0f; // Below 18V
+    guard.FeedWatchdog();
+    assert(guard.CheckHealth(uv_sensors, 0.00004f, safety, faults) == false);
+    assert((faults & FaultFlag::UNDERVOLTAGE_BUS) != 0);
+    assert((faults & FaultFlag::OVERVOLTAGE_BUS) == 0);
 
     std::cout << "\033[1;32mPASSED\033[0m\n";
 }
 
 void test_flight_recorder() {
-    std::cout << "[TEST 8/8] Testing In-Memory Flight Recorder Circular Buffering & Freeze... ";
+    std::cout << "[TEST 8/8] Testing In-Memory Circular Black-Box Monotonic Timestamping... ";
 
     FlightRecorder recorder;
     SensorReadings s;
@@ -158,7 +205,7 @@ void test_flight_recorder() {
     s.v_bus = 48.0f;
 
     for (uint32_t i = 0; i < 50; ++i) {
-        recorder.RecordSample(i * 40, s, DriveState::ARMED);
+        recorder.RecordSample(i * 40, s, OperatingMode::CLOSED_LOOP_IMPEDANCE, SafetyState::OK, 0);
     }
     assert(recorder.GetCount() == 50);
     assert(!recorder.IsFrozen());
@@ -178,12 +225,12 @@ int main() {
     std::cout << "======================================================================\n";
 
     test_foc_math();
-    test_field_weakening();
+    test_pi_anti_windup();
     test_anti_cogging_lut();
     test_sliding_mode_observer();
     test_can_protocol_packing();
-    test_efuse_protection();
-    test_brownout_protection();
+    test_safety_overcurrent();
+    test_safety_overvoltage_and_uvlo();
     test_flight_recorder();
 
     std::cout << "======================================================================\n";

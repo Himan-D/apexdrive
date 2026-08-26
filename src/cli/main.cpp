@@ -179,7 +179,7 @@ void command_monitor(uint8_t id) {
         std::cout << "  Joint Velocity (ω) : " << std::setw(7) << state.velocity_rad_s << " rad/s   | Measured Torque : " << state.torque_nm << " Nm\n";
         std::cout << "  Quadrature Current : " << std::setw(7) << state.current_iq_a << " A       | DC Bus Voltage  : " << state.v_bus_v << " V\n";
         std::cout << "  SMO Observer Angle : " << std::setw(7) << smo_angle << " rad     | Stator Temp     : " << state.temperature_c << " °C\n";
-        std::cout << "  Inverter Status    : \033[1;32m" << std::setw(12) << StateToString(state.state) << "\033[0m | Safety Guard    : \033[1;32mACTIVE (0 Faults)\033[0m\n";
+        std::cout << "  Inverter Status    : \033[1;32m" << std::setw(12) << ModeToString(state.mode) << "\033[0m | Safety Guard    : \033[1;32mACTIVE (0 Faults)\033[0m\n";
         std::cout << "  ----------------------------------------------------------------------------\n";
         std::cout << "  (Press Ctrl+C to exit monitor)\n";
 

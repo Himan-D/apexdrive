@@ -2,7 +2,7 @@
 
 #include "types.hpp"
 #include <array>
-#include <vector>
+#include <cstdint>
 #include <string>
 #include <sstream>
 #include <iomanip>
@@ -10,44 +10,46 @@
 namespace apexdrive {
 
 /**
- * High-Frequency In-Memory Circular Flight Recorder ("The Robotics Black Box")
- * Continuously records 25 kHz sensor telemetry without disk I/O or LTE bandwidth.
- * Freezes a forensic snapshot upon any hardware fault or emergency stop.
+ * 25 kHz In-Memory Circular Flight Recorder.
+ * Stores continuous telemetry snapshots in a zero-allocation ring buffer and freezes on fault.
  */
 class FlightRecorder {
 public:
-    static constexpr size_t BUFFER_CAPACITY = 250; // Rolling sliding window of snapshots
+    static constexpr size_t BUFFER_CAPACITY = 250; // 250 samples @ 25kHz = 10ms pre-fault buffer
 
     struct SnapshotFrame {
-        uint32_t timestamp_us{0};
-        float i_phase_a{0.0f};
-        float i_phase_b{0.0f};
-        float i_phase_c{0.0f};
+        uint64_t timestamp_us{0};
+        float i_a{0.0f};
+        float i_b{0.0f};
+        float i_c{0.0f};
         float v_bus{0.0f};
-        float rotor_angle{0.0f};
-        float mosfet_temp{0.0f};
-        DriveState state{DriveState::STANDBY};
+        float temp_c{0.0f};
+        OperatingMode mode{OperatingMode::STANDBY};
+        SafetyState safety{SafetyState::OK};
+        uint32_t faults{0};
     };
 
-    FlightRecorder() noexcept : write_index_(0), count_(0), is_frozen_(false) {}
+    FlightRecorder() noexcept {
+        buffer_.fill(SnapshotFrame{});
+    }
 
-    // Record high-speed frame into sliding ring buffer
-    void RecordSample(uint32_t timestamp_us, const SensorReadings& s, DriveState state) noexcept {
-        if (is_frozen_) return; // Do not overwrite post-fault freeze
+    void RecordSample(uint64_t timestamp_us, const SensorReadings& sensors, OperatingMode mode, SafetyState safety, uint32_t faults) noexcept {
+        if (is_frozen_) return;
 
-        buffer_[write_index_] = SnapshotFrame{
+        buffer_[write_idx_] = SnapshotFrame{
             .timestamp_us = timestamp_us,
-            .i_phase_a = s.i_phase_a,
-            .i_phase_b = s.i_phase_b,
-            .i_phase_c = s.i_phase_c,
-            .v_bus = s.v_bus,
-            .rotor_angle = s.rotor_angle_rad,
-            .mosfet_temp = s.mosfet_temp_c,
-            .state = state
+            .i_a = sensors.i_phase_a,
+            .i_b = sensors.i_phase_b,
+            .i_c = sensors.i_phase_c,
+            .v_bus = sensors.v_bus,
+            .temp_c = sensors.winding_temp_c,
+            .mode = mode,
+            .safety = safety,
+            .faults = faults
         };
 
-        write_index_ = (write_index_ + 1) % BUFFER_CAPACITY;
-        if (count_ < BUFFER_CAPACITY) count_++;
+        write_idx_ = (write_idx_ + 1) % BUFFER_CAPACITY;
+        if (count_ < BUFFER_CAPACITY) ++count_;
     }
 
     void FreezeOnFault() noexcept {
@@ -55,44 +57,45 @@ public:
     }
 
     void Reset() noexcept {
-        write_index_ = 0;
-        count_ = 0;
         is_frozen_ = false;
+        write_idx_ = 0;
+        count_ = 0;
+        buffer_.fill(SnapshotFrame{});
     }
 
     [[nodiscard]] bool IsFrozen() const noexcept { return is_frozen_; }
     [[nodiscard]] size_t GetCount() const noexcept { return count_; }
 
-    // Dumps formatted forensic package for remote triage
     [[nodiscard]] std::string DumpForensicReport() const {
-        std::stringstream ss;
-        ss << "======================================================================\n";
-        ss << " APEXDRIVE FORENSIC BLACK-BOX INCIDENT REPORT                         \n";
-        ss << " Status: " << (is_frozen_ ? "FROZEN ON HARDWARE FAULT" : "HEALTHY BUFFER") << "\n";
-        ss << " Recorded Frames: " << count_ << " samples in ring buffer\n";
-        ss << "======================================================================\n";
-        ss << "  TIME(us)  |  I_A (A)  |  I_B (A)  |  I_C (A)  | V_BUS(V) | TEMP(C) | STATE\n";
-        ss << "----------------------------------------------------------------------\n";
+        std::ostringstream oss;
+        oss << "======================================================================\n";
+        oss << " APEXDRIVE FORENSIC BLACK-BOX INCIDENT REPORT                         \n";
+        oss << " Status: " << (is_frozen_ ? "FROZEN ON FAULT" : "ACTIVE RECORDING") << "\n";
+        oss << " Recorded Frames: " << count_ << " samples in ring buffer\n";
+        oss << "======================================================================\n";
+        oss << "  TIME(us)  |  I_A (A)  |  I_B (A)  |  I_C (A)  | V_BUS(V) | TEMP(C) | MODE\n";
+        oss << "----------------------------------------------------------------------\n";
 
-        size_t start = (count_ < BUFFER_CAPACITY) ? 0 : write_index_;
+        size_t start_idx = (count_ < BUFFER_CAPACITY) ? 0 : write_idx_;
         for (size_t i = 0; i < count_; ++i) {
-            size_t idx = (start + i) % BUFFER_CAPACITY;
+            size_t idx = (start_idx + i) % BUFFER_CAPACITY;
             const auto& f = buffer_[idx];
-            ss << std::setw(10) << f.timestamp_us << " | "
-               << std::setw(9) << std::fixed << std::setprecision(2) << f.i_phase_a << " | "
-               << std::setw(9) << f.i_phase_b << " | "
-               << std::setw(9) << f.i_phase_c << " | "
-               << std::setw(8) << f.v_bus << " | "
-               << std::setw(7) << f.mosfet_temp << " | "
-               << StateToString(f.state) << "\n";
+            oss << std::setw(10) << f.timestamp_us << " | "
+                << std::fixed << std::setprecision(2)
+                << std::setw(9) << f.i_a << " | "
+                << std::setw(9) << f.i_b << " | "
+                << std::setw(9) << f.i_c << " | "
+                << std::setw(8) << f.v_bus << " | "
+                << std::setw(7) << f.temp_c << " | "
+                << ModeToString(f.mode) << "\n";
         }
-        ss << "======================================================================\n";
-        return ss.str();
+        oss << "======================================================================\n";
+        return oss.str();
     }
 
 private:
-    std::array<SnapshotFrame, BUFFER_CAPACITY> buffer_{};
-    size_t write_index_{0};
+    std::array<SnapshotFrame, BUFFER_CAPACITY> buffer_;
+    size_t write_idx_{0};
     size_t count_{0};
     bool is_frozen_{false};
 };
