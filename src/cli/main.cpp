@@ -29,15 +29,23 @@ void print_header() {
     std::cout << "\033[0m";
 }
 
+#include "../../include/apexdrive/core/platform_detector.hpp"
+
 void print_usage() {
     std::cout << "Usage: apexdrive <command> [options]\n\n";
     std::cout << "Commands:\n";
+    std::cout << "  info                               Display host hardware environment & auto-detected backend\n";
     std::cout << "  scan [--interface <canX>] [--mock] Scan CAN bus for physical or simulated actuators\n";
     std::cout << "  tune [--id <hex>]                  Run motor calibration sequence & synthesize gains\n";
     std::cout << "  monitor [--id <hex>] [--mock]      Launch live telemetry HUD & observer tracking\n";
     std::cout << "  dump-blackbox                      Dump frozen pre/post-fault forensic incident logs\n";
     std::cout << "  bench                              Run host-side FOC math & safety supervisor timing benchmark\n";
     std::cout << "  version                            Display version & system capabilities\n";
+}
+
+void command_info() {
+    auto profile = PlatformDetector::DetectEnvironment();
+    std::cout << "\n" << PlatformDetector::GenerateDiagnosticSummary(profile) << "\n";
 }
 
 void command_scan(const std::string& iface, bool mock_mode) {
@@ -249,7 +257,9 @@ int main(int argc, char* argv[]) {
 
     std::string cmd = argv[1];
 
-    if (cmd == "scan") {
+    if (cmd == "info" || cmd == "--info") {
+        command_info();
+    } else if (cmd == "scan") {
         std::string iface = "can0";
         bool mock_mode = false;
         for (int i = 2; i < argc; ++i) {

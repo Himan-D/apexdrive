@@ -15,10 +15,11 @@ endif()
 # Include Directories
 include_directories(${CMAKE_CURRENT_SOURCE_DIR}/include)
 
-# 1. Host Actuator Library (with Real Linux SocketCAN transport)
+# 1. Host Actuator Library (with Real Linux SocketCAN transport & Platform Auto-Detector)
 add_library(apexdrive_host STATIC
     src/host/actuator.cpp
     src/host/can_socket.cpp
+    src/core/platform_detector.cpp
 )
 set_target_properties(apexdrive_host PROPERTIES
     VERSION ${PROJECT_VERSION}
