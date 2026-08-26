@@ -28,6 +28,7 @@ void test_foc_math() {
 
     assert(std::abs(ab.alpha - ab_inv.alpha) < 1e-4f);
     assert(std::abs(ab.beta - ab_inv.beta) < 1e-4f);
+    (void)ab_inv;
 
     auto duties = FocMath::Svpwm(ab, 24.0f);
     assert(duties.u >= 0.0f && duties.u <= 1.0f);
@@ -171,6 +172,7 @@ void test_safety_overcurrent() {
     assert(guard.CheckHealth(overcurrent_sensors, 0.00004f, safety, faults) == false);
     assert(safety == SafetyState::FAULT_STOP);
     assert((faults & FaultFlag::OVERCURRENT_PHASE) != 0);
+    (void)overcurrent_sensors;
     (void)safety;
     (void)faults;
 
@@ -195,6 +197,7 @@ void test_safety_overvoltage_and_uvlo() {
     assert(guard.CheckHealth(ov_sensors, 0.00004f, safety, faults) == false);
     assert((faults & FaultFlag::OVERVOLTAGE_BUS) != 0);
     assert((faults & FaultFlag::UNDERVOLTAGE_BUS) == 0); // Disambiguated!
+    (void)ov_sensors;
 
     // Undervoltage test
     SensorReadings uv_sensors;
@@ -203,6 +206,7 @@ void test_safety_overvoltage_and_uvlo() {
     assert(guard.CheckHealth(uv_sensors, 0.00004f, safety, faults) == false);
     assert((faults & FaultFlag::UNDERVOLTAGE_BUS) != 0);
     assert((faults & FaultFlag::OVERVOLTAGE_BUS) == 0);
+    (void)uv_sensors;
     (void)safety;
     (void)faults;
 
