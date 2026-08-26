@@ -100,6 +100,7 @@ void test_scenario_can_watchdog_timeout() {
     auto state = joint.GetState();
     assert(state.safety_state == SafetyState::FAULT_STOP);
     assert((state.fault_flags & FaultFlag::WATCHDOG_TIMEOUT) != 0);
+    (void)state;
 
     std::cout << "\033[1;32mPASSED (Safe Stop Triggered)\033[0m\n";
 }
@@ -120,11 +121,13 @@ void test_scenario_can_v2_crc_validation() {
     assert(ok == true);
     assert(decoded_seq == 1042);
     assert(decoded_mode == OperatingMode::CLOSED_LOOP_IMPEDANCE);
+    (void)ok;
 
     // 2. Corrupt 1 bit in payload
     buffer[4] ^= 0x01;
     bool corrupt_ok = CanProtocolV2::DecodeCommand(buffer, decoded_cmd, decoded_mode, decoded_seq);
     assert(corrupt_ok == false); // Corrupted CRC rejected!
+    (void)corrupt_ok;
 
     std::cout << "\033[1;32mPASSED\033[0m\n";
 }
@@ -140,11 +143,14 @@ void test_scenario_motor_parameter_consistency() {
     assert(derived_kt > 0.0f);
     assert(derived_ke > 0.0f);
     assert(base_speed > 100.0f);
+    (void)derived_ke;
+    (void)base_speed;
 
     // Verify peak vs RMS conversions
     float peak_current = 25.0f;
     float rms_current = Units::PhasePeakToRms(peak_current);
     assert(std::abs(Units::RmsToPhasePeak(rms_current) - peak_current) < 1e-4f);
+    (void)rms_current;
 
     std::cout << "\033[1;32mPASSED (Derived Kt: " << derived_kt << " Nm/A)\033[0m\n";
 }

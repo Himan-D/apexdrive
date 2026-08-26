@@ -69,6 +69,7 @@ void test_anti_cogging_lut() {
     // Halfway between bucket 0 and 1 -> should interpolate to ~0.75f
     float interp_val = map.Lookup(0.01227f);
     assert(interp_val > 0.5f && interp_val < 1.0f);
+    (void)interp_val;
 
     std::cout << "\033[1;32mPASSED\033[0m\n";
 }
@@ -87,6 +88,7 @@ void test_sliding_mode_observer() {
     }
     float est_angle = smo.GetEstimatedAngle();
     assert(est_angle >= 0.0f && est_angle <= 6.2831853f);
+    (void)est_angle;
 
     std::cout << "\033[1;32mPASSED\033[0m\n";
 }
@@ -111,6 +113,7 @@ void test_can_protocol_packing() {
     assert(std::abs(original_cmd.stiffness_kp - decoded_cmd.stiffness_kp) < 3.0f);
     assert(std::abs(original_cmd.damping_kd - decoded_cmd.damping_kd) < 0.2f);
     assert(std::abs(original_cmd.feedforward_torque_nm - decoded_cmd.feedforward_torque_nm) < 0.1f);
+    (void)decoded_cmd;
 
     // Test Telemetry and Fault Nibble packing
     JointTelemetry original_telem{
@@ -125,7 +128,8 @@ void test_can_protocol_packing() {
         .v_bus_v = 48.0f,
         .temperature_c = 42.0f,
         .fault_flags = FaultFlag::OVERCURRENT_PHASE,
-        .timestamp_us = 1000
+        .timestamp_us = 1000,
+        .sequence_number = 0
     };
 
     uint8_t telem_buf[8];
@@ -134,6 +138,7 @@ void test_can_protocol_packing() {
 
     assert(decoded_telem.mode == OperatingMode::CLOSED_LOOP_IMPEDANCE);
     assert((decoded_telem.fault_flags & FaultFlag::OVERCURRENT_PHASE) != 0);
+    (void)decoded_telem;
 
     std::cout << "\033[1;32mPASSED\033[0m\n";
 }
@@ -162,6 +167,8 @@ void test_safety_overcurrent() {
     assert(guard.CheckHealth(overcurrent_sensors, 0.00004f, safety, faults) == false);
     assert(safety == SafetyState::FAULT_STOP);
     assert((faults & FaultFlag::OVERCURRENT_PHASE) != 0);
+    (void)safety;
+    (void)faults;
 
     std::cout << "\033[1;32mPASSED\033[0m\n";
 }
@@ -192,6 +199,8 @@ void test_safety_overvoltage_and_uvlo() {
     assert(guard.CheckHealth(uv_sensors, 0.00004f, safety, faults) == false);
     assert((faults & FaultFlag::UNDERVOLTAGE_BUS) != 0);
     assert((faults & FaultFlag::OVERVOLTAGE_BUS) == 0);
+    (void)safety;
+    (void)faults;
 
     std::cout << "\033[1;32mPASSED\033[0m\n";
 }
