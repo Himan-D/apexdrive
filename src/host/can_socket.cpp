@@ -161,7 +161,8 @@ std::vector<uint8_t> CanTransport::ScanBus(int timeout_ms) {
         probe_frame.can_id = 0x100;
         probe_frame.can_dlc = 1;
         probe_frame.data[0] = 0xAA; // Discovery opcode
-        write(socket_fd_, &probe_frame, sizeof(probe_frame));
+        ssize_t sent = write(socket_fd_, &probe_frame, sizeof(probe_frame));
+        (void)sent;
 
         auto start = std::chrono::steady_clock::now();
         while (true) {

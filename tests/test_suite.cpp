@@ -33,10 +33,12 @@ void test_foc_math() {
     assert(duties.u >= 0.0f && duties.u <= 1.0f);
     assert(duties.v >= 0.0f && duties.v <= 1.0f);
     assert(duties.w >= 0.0f && duties.w <= 1.0f);
+    (void)duties;
 
     // Test Saliency / Reluctance Torque
     float torque_em = FocMath::ComputeElectromagneticTorque(0.0f, 10.0f, 7.0f, 0.0068f, 0.000118f, 0.000135f);
     assert(torque_em > 0.0f);
+    (void)torque_em;
 
     std::cout << "\033[1;32mPASSED\033[0m\n";
 }
@@ -50,11 +52,13 @@ void test_pi_anti_windup() {
     for (int i = 0; i < 100; ++i) {
         float out = pi.Update(50.0f, 0.001f);
         assert(std::abs(out) <= 10.0f);
+        (void)out;
     }
     
     // Once error reverses, back-calculation anti-windup should desaturate rapidly
     float desat_out = pi.Update(-20.0f, 0.001f);
     assert(desat_out < 10.0f);
+    (void)desat_out;
 
     std::cout << "\033[1;32mPASSED\033[0m\n";
 }
