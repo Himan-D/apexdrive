@@ -179,17 +179,19 @@ public:
         kaw_ = (kaw > 0.0f ? kaw : (kp > 1e-4f ? 1.0f / kp : 1.0f));
     }
 
-    [[nodiscard]] float Update(float error, float dt) noexcept {
-        const float p_term = kp_ * error;
-        const float u_unsat = p_term + integrator_;
-        const float u_sat = std::clamp(u_unsat, -limit_, limit_);
+    [[nodiscard]] float ComputeUnsaturated(float error) const noexcept {
+        return kp_ * error + integrator_;
+    }
 
-        // Back-calculation anti-windup:
-        // dI/dt = Ki * error + Kaw * (u_sat - u_unsat)
-        const float windup_diff = u_sat - u_unsat;
+    void CommitIntegrator(float error, float dt, float windup_diff) noexcept {
         integrator_ += (ki_ * error + kaw_ * windup_diff) * dt;
         integrator_ = std::clamp(integrator_, -limit_, limit_);
+    }
 
+    [[nodiscard]] float Update(float error, float dt) noexcept {
+        const float u_unsat = ComputeUnsaturated(error);
+        const float u_sat = std::clamp(u_unsat, -limit_, limit_);
+        CommitIntegrator(error, dt, u_sat - u_unsat);
         return u_sat;
     }
 

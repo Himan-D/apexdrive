@@ -39,15 +39,21 @@ public:
     void Arm() override {
         mode_ = OperatingMode::CLOSED_LOOP_IMPEDANCE;
         safety_state_ = SafetyState::OK;
+        ImpedanceCommand empty_cmd{};
+        (void)transport_.SendCommand(node_id_, empty_cmd, mode_, 0);
     }
 
     void Disarm() override {
         mode_ = OperatingMode::STANDBY;
+        ImpedanceCommand empty_cmd{};
+        (void)transport_.SendCommand(node_id_, empty_cmd, mode_, 0);
     }
 
     void EmergencyStop() override {
         mode_ = OperatingMode::STANDBY;
         safety_state_ = SafetyState::SAFE_TORQUE_OFF;
+        ImpedanceCommand empty_cmd{};
+        (void)transport_.SendCommand(node_id_, empty_cmd, mode_, 0);
     }
 
     bool SendCommand(const ImpedanceCommand& cmd, OperatingMode mode, uint16_t sequence_num) override {

@@ -178,7 +178,9 @@ std::vector<uint8_t> CanTransport::ScanBus(int timeout_ms) {
 
             auto tele = ReceiveTelemetry(10);
             if (tele.has_value()) {
-                discovered_nodes.push_back(tele->node_id);
+                if (std::find(discovered_nodes.begin(), discovered_nodes.end(), tele->node_id) == discovered_nodes.end()) {
+                    discovered_nodes.push_back(tele->node_id);
+                }
             }
         }
         return discovered_nodes;

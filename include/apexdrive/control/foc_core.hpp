@@ -39,8 +39,8 @@ public:
 
     explicit FocEngine(const MotorParameters& params) noexcept
         : params_(params),
-          pi_d_(params.rs_ohm * 9424.0f, params.ld_h * 9424.0f * 200.0f, params.max_bus_voltage_v),
-          pi_q_(params.rs_ohm * 9424.0f, params.lq_h * 9424.0f * 200.0f, params.max_bus_voltage_v) {}
+          pi_d_(params.ld_h * 9424.0f, params.rs_ohm * 9424.0f * 200.0f, params.max_bus_voltage_v),
+          pi_q_(params.lq_h * 9424.0f, params.rs_ohm * 9424.0f * 200.0f, params.max_bus_voltage_v) {}
 
     void Reset() noexcept {
         pi_d_.Reset();
@@ -76,8 +76,8 @@ public:
         float err_q = in.target_iq_a - out.i_dq.q;
 
         // 4. PI Controllers (Unsaturated command)
-        float v_d_pi = pi_d_.Update(err_d, dt);
-        float v_q_pi = pi_q_.Update(err_q, dt);
+        float v_d_pi = pi_d_.ComputeUnsaturated(err_d);
+        float v_q_pi = pi_q_.ComputeUnsaturated(err_q);
 
         // 5. Cross-Coupling Decoupling Feedforward
         auto v_dq_decoupled = FocMath::DecoupleCrossCoupling(
@@ -103,6 +103,10 @@ public:
             out.v_d_sat = out.v_d_cmd;
             out.v_q_sat = out.v_q_cmd;
         }
+
+        // Apply back-calculation anti-windup using the difference between saturated and requested command
+        pi_d_.CommitIntegrator(err_d, dt, out.v_d_sat - out.v_d_cmd);
+        pi_q_.CommitIntegrator(err_q, dt, out.v_q_sat - out.v_q_cmd);
 
         // 7. Inverse Park Transform (DQ -> Alpha/Beta)
         out.v_ab = FocMath::InversePark({out.v_d_sat, out.v_q_sat}, in.electrical_angle_rad);
